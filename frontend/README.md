@@ -25,13 +25,9 @@ pnpm run start -p 3000
 
 - `/`: Khám phá sự kiện, tìm kiếm & bộ lọc danh mục
 - `/events/[slug]`: Chi tiết sự kiện & Booking Panel động
-- `/checkout/[reservationId]`: Giữ vé & thanh toán mô phỏng
+- `/checkout/[reservationId]`: Giữ vé & xác nhận đặt vé
 - `/my-tickets`: Vé của tôi (Đã xác nhận / Đang giữ / Lịch sử)
 - `/my-waitlist`: Danh sách chờ FIFO & Offer đang mở
 - `/offers/[offerId]`: Quyền mua vé có countdown thời hạn
 - `/organizer`: Bảng điều khiển Ban tổ chức & Quản lý hàng chờ
-- `/login`, `/register`: Đăng nhập & Đăng ký demo 1-click
-
-## Bản quyền
-
-Phát triển từ template [cenksari/react-ticketing-website-template](https://github.com/cenksari/react-ticketing-website-template) (Giấy phép MIT trong `LICENSE.md`).
+- `/login`, `/register`: Đăng nhập & Đăng ký tài khoản
