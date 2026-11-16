@@ -19,3 +19,59 @@ model AppHealth {
 
   @@map("_app_health")
 }
+
+// ===================== TV1 · ST-001: Tài khoản & Nhật ký quản trị =====================
+
+/// Vai trò người dùng. Dùng ENUM của PostgreSQL nên DB tự chặn giá trị không hợp lệ.
+enum UserRole {
+  CUSTOMER
+  ORGANIZER
+  ADMIN
+
+  @@map("user_role")
+}
+
+/// Trạng thái tài khoản. LOCKED = bị Admin khóa, không đăng nhập / gọi API được.
+enum UserStatus {
+  ACTIVE
+  LOCKED
+
+  @@map("user_status")
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  name         String     @db.VarChar(120)
+  email        String     @unique @db.VarChar(255)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  role         UserRole   @default(CUSTOMER)
+  status       UserStatus @default(ACTIVE)
+  avatar       String?    @db.VarChar(500)
+  phone        String?    @db.VarChar(20)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  auditLogs AuditLog[]
+
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String   @db.VarChar(64)
+  targetType String   @map("target_type") @db.VarChar(32)
+  targetId   String?  @map("target_id") @db.VarChar(64)
+  details    Json?    @db.JsonB
+  requestId  String?  @map("request_id") @db.VarChar(64)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([actorId])
+  @@index([targetType, targetId])
+  @@map("audit_logs")
+}

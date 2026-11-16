@@ -1,14 +1,20 @@
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const configService = app.get(ConfigService);
 
   const port = configService.get<number>('PORT') || 4000;
   const corsOrigin = configService.get<string>('CORS_ORIGIN') || 'http://localhost:3000';
+
+  // Chạy sau load balancer (AWS) → bật TRUST_PROXY=true để rate-limit đúng IP thật của client.
+  if (configService.get<boolean>('TRUST_PROXY')) {
+    app.set('trust proxy', 1);
+  }
 
   app.setGlobalPrefix('api');
 
@@ -16,7 +22,8 @@ async function bootstrap(): Promise<void> {
     origin: corsOrigin.split(',').map((item) => item.trim()),
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'x-request-id'],
-    exposedHeaders: ['x-request-id'],
+    // Date: Frontend dùng giờ server để đồng bộ đồng hồ đếm ngược (ST-007).
+    exposedHeaders: ['x-request-id', 'Date'],
     credentials: true,
   });
 

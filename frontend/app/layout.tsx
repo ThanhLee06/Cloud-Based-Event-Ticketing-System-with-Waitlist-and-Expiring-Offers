@@ -3,6 +3,7 @@ import { type Metadata, type Viewport } from 'next';
 import './styles/site.css';
 
 import { MockStoreProvider } from '@lib/mock/store';
+import { AuthProvider } from '@lib/auth/AuthProvider';
 import Header from '@components/Header/Header';
 import Footer from '@components/Footer/Footer';
 import ScenarioToolbar from '@components/Demo/ScenarioToolbar';
@@ -51,10 +52,12 @@ const RootLayout: React.FC<Readonly<{ children: React.ReactNode }>> = ({ childre
         }}
       >
         <MockStoreProvider>
-          <Header />
-          <main style={{ flex: 1 }}>{children}</main>
-          <Footer />
-          <ScenarioToolbar />
+          <AuthProvider>
+            <Header />
+            <main style={{ flex: 1 }}>{children}</main>
+            <Footer />
+            <ScenarioToolbar />
+          </AuthProvider>
         </MockStoreProvider>
       </body>
     </html>

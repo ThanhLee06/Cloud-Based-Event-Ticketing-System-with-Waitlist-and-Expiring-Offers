@@ -4,8 +4,43 @@ import React, { useRef, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import useClickOutside from '@hooks/useClickOutside';
+import { useRouter } from 'next/navigation';
 import { useMockStore } from '@lib/mock/store';
-import { Ticket, ChevronDown, Menu, X, User, Check, PlusCircle } from 'lucide-react';
+import { useAuth, ROLE_LABELS } from '@lib/auth/AuthProvider';
+import {
+  Ticket,
+  ChevronDown,
+  Menu,
+  X,
+  User,
+  PlusCircle,
+  UserCog,
+  ShieldCheck,
+  LogOut,
+} from 'lucide-react';
+
+const menuItemStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '8px',
+  borderRadius: 6,
+  fontSize: '0.84rem',
+  color: '#18181b',
+  textDecoration: 'none',
+  backgroundColor: 'transparent',
+  border: 'none',
+  cursor: 'pointer',
+  textAlign: 'left',
+};
+
+const mobileLinkStyle: React.CSSProperties = {
+  padding: '8px 0',
+  fontSize: '0.9rem',
+  fontWeight: 500,
+  color: '#18181b',
+  textDecoration: 'none',
+};
 
 const Header: React.FC = () => {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -13,15 +48,17 @@ const Header: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
-  const {
-    state,
-    currentUser,
-    switchUser,
-    getUserReservations,
-    getUserOffers,
-    getUserWaitlist,
-    isHydrated,
-  } = useMockStore();
+  const router = useRouter();
+  const { getUserReservations, getUserOffers, getUserWaitlist, isHydrated } = useMockStore();
+  const { user: authUser, status: authStatus, logout } = useAuth();
+  const isOrganizer = authUser?.role === 'ORGANIZER';
+
+  const handleLogout = () => {
+    setUserDropdownOpen(false);
+    setMobileMenuOpen(false);
+    logout();
+    router.push('/login');
+  };
 
   useClickOutside(wrapperRef, () => {
     setUserDropdownOpen(false);
@@ -45,14 +82,16 @@ const Header: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const myReservations = isHydrated ? getUserReservations() : [];
+  // Số đếm (vé/hàng chờ) vẫn lấy từ dữ liệu mẫu cho tới khi TV3/TV4 nối API; chỉ hiện khi đã đăng nhập.
+  const showCounts = isHydrated && !!authUser;
+  const myReservations = showCounts ? getUserReservations() : [];
   const activeTicketsCount = myReservations.filter(
     (r) => r.status === 'CONFIRMED' || r.status === 'HOLD'
   ).length;
 
-  const myOffers = isHydrated ? getUserOffers() : [];
+  const myOffers = showCounts ? getUserOffers() : [];
   const pendingOffersCount = myOffers.filter((o) => o.status === 'PENDING').length;
-  const myWaitlist = isHydrated ? getUserWaitlist() : [];
+  const myWaitlist = showCounts ? getUserWaitlist() : [];
   const waitingCount = myWaitlist.filter((w) => w.status === 'WAITING').length;
   const totalWaitlistBadge = pendingOffersCount > 0 ? pendingOffersCount : waitingCount;
 
@@ -225,10 +264,10 @@ const Header: React.FC = () => {
               borderRadius: 6,
               fontSize: '0.82rem',
               fontWeight: 600,
-              color: currentUser.role === 'ORGANIZER' ? '#ffffff' : '#52525b',
-              backgroundColor: currentUser.role === 'ORGANIZER' ? '#18181b' : '#f4f4f5',
+              color: isOrganizer ? '#ffffff' : '#52525b',
+              backgroundColor: isOrganizer ? '#18181b' : '#f4f4f5',
               border: '1px solid',
-              borderColor: currentUser.role === 'ORGANIZER' ? '#18181b' : '#e4e4e7',
+              borderColor: isOrganizer ? '#18181b' : '#e4e4e7',
               textDecoration: 'none',
             }}
             className='desktop-nav'
@@ -237,175 +276,158 @@ const Header: React.FC = () => {
             <span>Kênh Ban tổ chức</span>
           </Link>
 
-          {/* User Profile Switcher */}
-          <div ref={wrapperRef} style={{ position: 'relative' }}>
-            <button
-              type='button'
-              onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-              aria-expanded={userDropdownOpen}
-              aria-haspopup='menu'
-              aria-controls='user-dropdown-menu'
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '4px 10px 4px 6px',
-                borderRadius: 999,
-                backgroundColor: '#ffffff',
-                border: '1px solid #e4e4e7',
-                cursor: 'pointer',
-              }}
-              aria-label='Tài khoản người dùng'
-            >
-              {currentUser.avatar ? (
-                <img
-                  src={currentUser.avatar}
-                  alt={currentUser.name}
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 999,
-                    objectFit: 'cover',
-                  }}
-                />
-              ) : (
-                <div
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 999,
-                    backgroundColor: '#f4f4f5',
-                    color: '#18181b',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <User size={14} />
-                </div>
-              )}
-              <div
+          {/* ST-007: Tài khoản thật (JWT) */}
+          {authStatus === 'loading' ? (
+            <div
+              aria-hidden='true'
+              style={{ width: 120, height: 36, borderRadius: 999, backgroundColor: '#f4f4f5' }}
+            />
+          ) : !authUser ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Link
+                href='/login'
+                className='ef-btn ef-btn-secondary'
+                style={{ padding: '6px 12px' }}
+              >
+                Đăng nhập
+              </Link>
+              <Link
+                href='/register'
+                className='ef-btn ef-btn-primary desktop-nav'
+                style={{ padding: '6px 12px' }}
+              >
+                Đăng ký
+              </Link>
+            </div>
+          ) : (
+            <div ref={wrapperRef} style={{ position: 'relative' }}>
+              <button
+                type='button'
+                onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                aria-expanded={userDropdownOpen}
+                aria-haspopup='menu'
+                aria-controls='user-dropdown-menu'
                 style={{
                   display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  lineHeight: 1.15,
-                }}
-                className='desktop-nav'
-              >
-                <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#18181b' }}>
-                  {currentUser.name}
-                </span>
-                <span style={{ fontSize: '0.68rem', color: '#52525b' }}>
-                  {currentUser.role === 'ORGANIZER' ? 'Ban tổ chức' : 'Người mua'}
-                </span>
-              </div>
-              <ChevronDown size={14} color='#71717a' />
-            </button>
-
-            {/* Dropdown Menu (F15) */}
-            {userDropdownOpen && (
-              <div
-                id='user-dropdown-menu'
-                role='menu'
-                style={{
-                  position: 'absolute',
-                  top: '100%',
-                  right: 0,
-                  marginTop: 6,
-                  width: 240,
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '4px 10px 4px 6px',
+                  borderRadius: 999,
                   backgroundColor: '#ffffff',
-                  borderRadius: 10,
                   border: '1px solid #e4e4e7',
-                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.08)',
-                  padding: 8,
-                  zIndex: 2000,
+                  cursor: 'pointer',
                 }}
+                aria-label='Tài khoản người dùng'
               >
+                {authUser.avatar ? (
+                  <img
+                    src={authUser.avatar}
+                    alt={authUser.name}
+                    style={{ width: 28, height: 28, borderRadius: 999, objectFit: 'cover' }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 999,
+                      backgroundColor: '#18181b',
+                      color: '#ffffff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {authUser.name.trim().charAt(0).toUpperCase() || <User size={14} />}
+                  </div>
+                )}
                 <div
                   style={{
-                    padding: '6px 8px',
-                    fontSize: '0.72rem',
-                    fontWeight: 700,
-                    color: '#52525b',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    lineHeight: 1.15,
+                  }}
+                  className='desktop-nav'
+                >
+                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#18181b' }}>
+                    {authUser.name}
+                  </span>
+                  <span style={{ fontSize: '0.68rem', color: '#52525b' }}>
+                    {ROLE_LABELS[authUser.role]}
+                  </span>
+                </div>
+                <ChevronDown size={14} color='#71717a' />
+              </button>
+
+              {userDropdownOpen && (
+                <div
+                  id='user-dropdown-menu'
+                  role='menu'
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    marginTop: 6,
+                    width: 240,
+                    backgroundColor: '#ffffff',
+                    borderRadius: 10,
+                    border: '1px solid #e4e4e7',
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.08)',
+                    padding: 8,
+                    zIndex: 2000,
                   }}
                 >
-                  Tài khoản trải nghiệm:
-                </div>
-
-                {state.users.map((user) => {
-                  const isSelected = user.id === currentUser.id;
-                  return (
-                    <button
-                      key={user.id}
-                      type='button'
-                      role='menuitem'
-                      onClick={() => {
-                        switchUser(user.id);
-                        setUserDropdownOpen(false);
-                      }}
+                  <div style={{ padding: '6px 8px 8px' }}>
+                    <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#18181b' }}>
+                      {authUser.name}
+                    </div>
+                    <div
                       style={{
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '6px 8px',
-                        borderRadius: 6,
-                        backgroundColor: isSelected ? '#f4f4f5' : 'transparent',
-                        textAlign: 'left',
-                        border: 'none',
-                        cursor: 'pointer',
+                        fontSize: '0.72rem',
+                        color: '#52525b',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <img
-                          src={user.avatar}
-                          alt={user.name}
-                          style={{ width: 24, height: 24, borderRadius: 999, objectFit: 'cover' }}
-                        />
-                        <div>
-                          <div
-                            style={{
-                              fontSize: '0.82rem',
-                              fontWeight: isSelected ? 700 : 500,
-                              color: '#18181b',
-                            }}
-                          >
-                            {user.name}
-                          </div>
-                          <div style={{ fontSize: '0.68rem', color: '#52525b' }}>
-                            {user.role === 'ORGANIZER' ? 'Ban tổ chức' : 'Người mua'}
-                          </div>
-                        </div>
-                      </div>
+                      {authUser.email}
+                    </div>
+                  </div>
+                  <div style={{ margin: '2px 0 6px', borderTop: '1px solid #e4e4e7' }} />
 
-                      {isSelected && <Check size={14} color='#18181b' strokeWidth={2.5} />}
-                    </button>
-                  );
-                })}
+                  <Link href='/profile' role='menuitem' style={menuItemStyle}>
+                    <UserCog size={15} />
+                    <span>Hồ sơ cá nhân</span>
+                  </Link>
+                  {authUser.role === 'ADMIN' && (
+                    <Link href='/admin' role='menuitem' style={menuItemStyle}>
+                      <ShieldCheck size={15} />
+                      <span>Trang quản trị</span>
+                    </Link>
+                  )}
+                  {authUser.role === 'ORGANIZER' && (
+                    <Link href='/organizer' role='menuitem' style={menuItemStyle}>
+                      <PlusCircle size={15} />
+                      <span>Kênh Ban tổ chức</span>
+                    </Link>
+                  )}
 
-                <div style={{ margin: '6px 0', borderTop: '1px solid #e4e4e7' }} />
-
-                <Link
-                  href='/login'
-                  role='menuitem'
-                  onClick={() => setUserDropdownOpen(false)}
-                  style={{
-                    display: 'block',
-                    textAlign: 'center',
-                    padding: '6px 0',
-                    fontSize: '0.78rem',
-                    color: '#52525b',
-                    textDecoration: 'none',
-                  }}
-                >
-                  Màn hình đăng nhập demo
-                </Link>
-              </div>
-            )}
-          </div>
+                  <div style={{ margin: '6px 0', borderTop: '1px solid #e4e4e7' }} />
+                  <button
+                    type='button'
+                    role='menuitem'
+                    onClick={handleLogout}
+                    style={{ ...menuItemStyle, width: '100%', color: '#b91c1c' }}
+                  >
+                    <LogOut size={15} />
+                    <span>Đăng xuất</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Mobile Menu Toggle Button (F15) */}
           <button
@@ -515,6 +537,45 @@ const Header: React.FC = () => {
           >
             Kênh Ban tổ chức
           </Link>
+          <div style={{ margin: '4px 0', borderTop: '1px solid #e4e4e7' }} />
+          {authUser ? (
+            <>
+              <Link
+                href='/profile'
+                onClick={() => setMobileMenuOpen(false)}
+                style={mobileLinkStyle}
+              >
+                Hồ sơ cá nhân
+              </Link>
+              {authUser.role === 'ADMIN' && (
+                <Link
+                  href='/admin'
+                  onClick={() => setMobileMenuOpen(false)}
+                  style={mobileLinkStyle}
+                >
+                  Trang quản trị
+                </Link>
+              )}
+              <button
+                type='button'
+                onClick={handleLogout}
+                style={{
+                  ...mobileLinkStyle,
+                  color: '#b91c1c',
+                  textAlign: 'left',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                Đăng xuất
+              </button>
+            </>
+          ) : (
+            <Link href='/register' onClick={() => setMobileMenuOpen(false)} style={mobileLinkStyle}>
+              Đăng ký tài khoản
+            </Link>
+          )}
         </nav>
       )}
 

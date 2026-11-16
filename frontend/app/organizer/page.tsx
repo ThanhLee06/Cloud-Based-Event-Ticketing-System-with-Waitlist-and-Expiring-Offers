@@ -19,15 +19,8 @@ import {
 } from 'lucide-react';
 
 const OrganizerPage: React.FC = () => {
-  const {
-    state,
-    currentUser,
-    switchUser,
-    getAvailableTickets,
-    promoteNextWaitlist,
-    createEvent,
-    isHydrated,
-  } = useMockStore();
+  const { state, currentUser, getAvailableTickets, promoteNextWaitlist, createEvent, isHydrated } =
+    useMockStore();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
@@ -85,13 +78,9 @@ const OrganizerPage: React.FC = () => {
             <ArrowLeft size={16} />
             <span>Quay lại Khám phá</span>
           </Link>
-          <button
-            type='button'
-            onClick={() => switchUser('user-org')}
-            className='ef-btn ef-btn-secondary'
-          >
-            Chuyển sang tài khoản Ban tổ chức (Demo)
-          </button>
+          <Link href='/login?next=/organizer' className='ef-btn ef-btn-secondary'>
+            Đăng nhập bằng tài khoản Ban tổ chức
+          </Link>
         </div>
       </div>
     );
