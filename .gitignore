@@ -1,4 +1,18 @@
 # Logs
+
+# Local reference checkout, agent tool caches, audit logs, and AI prompts (kept local only)
+/reference/
+/.tools/
+/.playwright-cli/
+/.agents/
+/GEMINI.md
+/docs/
+/scripts/
+/frontend/yarn.lock
+/frontend/screenshots/
+__pycache__/
+*.py[cod]
+
 logs
 *.log
 npm-debug.log*
