@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { formatTimeRemaining } from '@lib/utils/format';
+import { getServerNow } from '@lib/api/client';
 import { Timer, TimerOff, Clock, AlertTriangle } from 'lucide-react';
 
 interface CountdownProps {
@@ -26,7 +27,7 @@ const Countdown: React.FC<CountdownProps> = ({
 
   useEffect(() => {
     setIsMounted(true);
-    const initialRemaining = Math.max(0, Math.floor((targetTime - Date.now()) / 1000));
+    const initialRemaining = Math.max(0, Math.floor((targetTime - getServerNow()) / 1000));
     setSecondsLeft(initialRemaining);
     const expired = initialRemaining <= 0;
     setHasExpired(expired);
@@ -40,7 +41,7 @@ const Countdown: React.FC<CountdownProps> = ({
     if (!isMounted) return;
 
     const checkExpiry = () => {
-      const remaining = Math.max(0, Math.floor((targetTime - Date.now()) / 1000));
+      const remaining = Math.max(0, Math.floor((targetTime - getServerNow()) / 1000));
       setSecondsLeft(remaining);
       if (remaining <= 0) {
         setHasExpired(true);

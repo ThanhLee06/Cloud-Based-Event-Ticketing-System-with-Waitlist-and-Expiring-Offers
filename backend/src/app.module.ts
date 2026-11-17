@@ -1,8 +1,12 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './health/health.module';
+import { RequestIdMiddleware } from './common/request-id.middleware';
+import { AuthModule } from './auth/auth.module';
+import { UsersModule } from './users/users.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -12,6 +16,9 @@ import { HealthModule } from './health/health.module';
     }),
     PrismaModule,
     HealthModule,
+    AuthModule,
+    UsersModule,
+    AdminModule,
     // Các thành viên đăng ký Module nghiệp vụ của mình tại đây:
     // - TV1: AuthModule, UsersModule, AdminModule
     // - TV2: EventsModule
@@ -20,4 +27,8 @@ import { HealthModule } from './health/health.module';
     // - TV5: OrganizerModule, MetricsModule
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(RequestIdMiddleware).forRoutes({ path: '{*path}', method: RequestMethod.ALL });
+  }
+}

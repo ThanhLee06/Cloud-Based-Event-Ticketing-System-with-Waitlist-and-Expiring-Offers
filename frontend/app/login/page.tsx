@@ -1,48 +1,61 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMockStore } from '@lib/mock/store';
-import { Lock, AlertCircle, Check, ArrowRight } from 'lucide-react';
+import { Lock, AlertCircle, ArrowRight, UserCheck } from 'lucide-react';
+import { useAuth, homePathForRole, ROLE_LABELS } from '@lib/auth/AuthProvider';
+import { getApiErrorMessage } from '@lib/api/client';
+import type { UserRole } from '@lib/api/auth';
+
+/** Tài khoản có sẵn trong DB sau khi chạy `pnpm prisma:seed` (ST-001). */
+const DEMO_PASSWORD = 'Eventflow@123';
+const DEMO_ACCOUNTS: { email: string; role: UserRole; note: string }[] = [
+  { email: 'student001@eventflow.vn', role: 'CUSTOMER', note: '100 tài khoản: student001 → 100' },
+  { email: 'organizer01@eventflow.vn', role: 'ORGANIZER', note: 'organizer01, organizer02' },
+  { email: 'admin@eventflow.vn', role: 'ADMIN', note: 'Quản trị toàn hệ thống' },
+];
+
+/** Chỉ chấp nhận đường dẫn nội bộ để tránh open-redirect. */
+const readNextPath = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  const next = new URLSearchParams(window.location.search).get('next');
+  return next && next.startsWith('/') && !next.startsWith('//') && next !== '/login' ? next : null;
+};
 
 const LoginPage: React.FC = () => {
   const router = useRouter();
-  const { state, currentUser, switchUser } = useMockStore();
+  const { login, user, status } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const navigateByRole = (role?: string) => {
-    router.push(role === 'ORGANIZER' ? '/organizer' : '/');
-  };
+  // Đã đăng nhập mà vào /login → chuyển về trang phù hợp.
+  useEffect(() => {
+    if (status === 'authenticated' && user && !isSubmitting) {
+      router.replace(readNextPath() ?? homePathForRole(user.role));
+    }
+  }, [status, user, isSubmitting, router]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
-
-    const found = state.users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
-    if (!found) {
-      setErrorMessage(
-        'Email không khớp với tài khoản demo nào. Bạn có thể chọn nhanh tài khoản trải nghiệm bên dưới.'
-      );
-      return;
-    }
-
     setIsSubmitting(true);
-    setTimeout(() => {
-      switchUser(found.id);
+    try {
+      const u = await login(email.trim(), password);
+      router.push(readNextPath() ?? homePathForRole(u.role));
+    } catch (err) {
+      setErrorMessage(getApiErrorMessage(err, 'Đăng nhập thất bại. Vui lòng thử lại.'));
       setIsSubmitting(false);
-      navigateByRole(found.role);
-    }, 400);
+    }
   };
 
-  const handleQuickLogin = (userId: string) => {
-    switchUser(userId);
-    const user = state.users.find((u) => u.id === userId);
-    navigateByRole(user?.role);
+  const fillDemo = (demoEmail: string) => {
+    setEmail(demoEmail);
+    setPassword(DEMO_PASSWORD);
+    setErrorMessage(null);
   };
 
   return (
@@ -63,7 +76,7 @@ const LoginPage: React.FC = () => {
           </p>
         </div>
 
-        {/* 1-Click Demo Profiles */}
+        {/* Điền nhanh tài khoản demo có thật trong PostgreSQL */}
         <div
           style={{
             marginBottom: 20,
@@ -83,44 +96,38 @@ const LoginPage: React.FC = () => {
               marginBottom: 10,
             }}
           >
-            Chọn nhanh tài khoản trải nghiệm (Demo):
+            Điền nhanh tài khoản demo (mật khẩu {DEMO_PASSWORD}):
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {state.users.map((u) => {
-              const isCurrent = u.id === currentUser.id;
+            {DEMO_ACCOUNTS.map((acc) => {
+              const isFilled = email === acc.email;
               return (
                 <button
-                  key={u.id}
+                  key={acc.email}
                   type='button'
-                  onClick={() => handleQuickLogin(u.id)}
+                  onClick={() => fillDemo(acc.email)}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     padding: '8px 10px',
                     borderRadius: 6,
-                    border: isCurrent ? '1.5px solid var(--action)' : '1px solid var(--border)',
-                    backgroundColor: isCurrent ? '#f4f4f5' : 'var(--surface)',
+                    border: isFilled ? '1.5px solid var(--action)' : '1px solid var(--border)',
+                    backgroundColor: isFilled ? '#f4f4f5' : 'var(--surface)',
                     textAlign: 'left',
+                    cursor: 'pointer',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <img
-                      src={u.avatar}
-                      alt={u.name}
-                      style={{ width: 28, height: 28, borderRadius: 999, objectFit: 'cover' }}
-                    />
-                    <div>
-                      <div style={{ fontSize: '0.84rem', fontWeight: isCurrent ? 700 : 500 }}>
-                        {u.name}
-                      </div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                        {u.role === 'ORGANIZER' ? 'Ban tổ chức' : 'Người mua'} • {u.email}
-                      </div>
+                  <div>
+                    <div style={{ fontSize: '0.84rem', fontWeight: isFilled ? 700 : 600 }}>
+                      {ROLE_LABELS[acc.role]} • {acc.email}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      {acc.note}
                     </div>
                   </div>
-                  {isCurrent && <Check size={16} color='#18181b' strokeWidth={2.5} />}
+                  {isFilled && <UserCheck size={16} color='#18181b' strokeWidth={2.5} />}
                 </button>
               );
             })}
@@ -129,6 +136,7 @@ const LoginPage: React.FC = () => {
 
         {errorMessage && (
           <div
+            role='alert'
             className='ef-badge-danger'
             style={{
               padding: '10px 14px',
@@ -155,7 +163,7 @@ const LoginPage: React.FC = () => {
               type='email'
               required
               autoComplete='email'
-              placeholder='quan.le@eventflow.vn'
+              placeholder='student001@eventflow.vn'
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className='ef-input'
@@ -202,7 +210,7 @@ const LoginPage: React.FC = () => {
             href='/register'
             style={{ color: 'var(--text)', fontWeight: 600, textDecoration: 'underline' }}
           >
-            Đăng ký trải nghiệm
+            Đăng ký ngay
           </Link>
         </div>
       </div>

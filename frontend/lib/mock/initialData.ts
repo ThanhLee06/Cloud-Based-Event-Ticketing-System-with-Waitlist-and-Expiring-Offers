@@ -5,7 +5,7 @@ export const INITIAL_USERS: DemoUser[] = [
     id: 'user-1',
     name: 'Lê Minh Quân',
     email: 'quan.le@eventflow.vn',
-    role: 'ATTENDEE',
+    role: 'CUSTOMER',
     avatar:
       'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
     phone: '0901 234 567',
@@ -14,7 +14,7 @@ export const INITIAL_USERS: DemoUser[] = [
     id: 'user-2',
     name: 'Trần Thu Hà',
     email: 'ha.tran@eventflow.vn',
-    role: 'ATTENDEE',
+    role: 'CUSTOMER',
     avatar:
       'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80',
     phone: '0912 345 678',
@@ -23,7 +23,7 @@ export const INITIAL_USERS: DemoUser[] = [
     id: 'user-3',
     name: 'Nguyễn Hoàng Nam',
     email: 'nam.nguyen@eventflow.vn',
-    role: 'ATTENDEE',
+    role: 'CUSTOMER',
     avatar:
       'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=150&q=80',
     phone: '0923 456 789',

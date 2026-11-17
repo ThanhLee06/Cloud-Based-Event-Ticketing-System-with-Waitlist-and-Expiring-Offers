@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { useMockStore } from '@lib/mock/store';
+import { useAuth } from '@lib/auth/AuthProvider';
 import { ScenarioType } from '@lib/mock/types';
 import {
   SlidersHorizontal,
@@ -28,6 +29,7 @@ const ScenarioToolbar: React.FC = () => {
     promoteNextWaitlist,
     isHydrated,
   } = useMockStore();
+  const { user: authUser } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -167,52 +169,54 @@ const ScenarioToolbar: React.FC = () => {
             </button>
           </div>
 
-          {/* Quick Actor Switcher */}
-          <div style={{ marginBottom: 12 }}>
-            <div
-              style={{
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                color: '#52525b',
-                textTransform: 'uppercase',
-                marginBottom: 6,
-              }}
-            >
-              Đổi vai người dùng (Actor):
+          {/* Quick Actor Switcher — ẩn khi đã đăng nhập tài khoản thật (ST-007) */}
+          {!authUser && (
+            <div style={{ marginBottom: 12 }}>
+              <div
+                style={{
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  color: '#52525b',
+                  textTransform: 'uppercase',
+                  marginBottom: 6,
+                }}
+              >
+                Đổi vai người dùng (Actor):
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                {state.users.map((u) => {
+                  const isSelected = u.id === currentUser.id;
+                  return (
+                    <button
+                      key={u.id}
+                      type='button'
+                      onClick={() => {
+                        switchUser(u.id);
+                        showFeedback(`Đã chuyển: ${u.name}`);
+                      }}
+                      style={{
+                        padding: '6px 8px',
+                        borderRadius: 6,
+                        fontSize: '0.76rem',
+                        fontWeight: isSelected ? 700 : 500,
+                        backgroundColor: isSelected ? '#18181b' : '#f4f4f5',
+                        color: isSelected ? '#ffffff' : '#18181b',
+                        border: '1px solid',
+                        borderColor: isSelected ? '#18181b' : '#e4e4e7',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {u.name.split(' ')[0]} ({u.role === 'ORGANIZER' ? 'BTC' : 'Mua'})
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-              {state.users.map((u) => {
-                const isSelected = u.id === currentUser.id;
-                return (
-                  <button
-                    key={u.id}
-                    type='button'
-                    onClick={() => {
-                      switchUser(u.id);
-                      showFeedback(`Đã chuyển: ${u.name}`);
-                    }}
-                    style={{
-                      padding: '6px 8px',
-                      borderRadius: 6,
-                      fontSize: '0.76rem',
-                      fontWeight: isSelected ? 700 : 500,
-                      backgroundColor: isSelected ? '#18181b' : '#f4f4f5',
-                      color: isSelected ? '#ffffff' : '#18181b',
-                      border: '1px solid',
-                      borderColor: isSelected ? '#18181b' : '#e4e4e7',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {u.name.split(' ')[0]} ({u.role === 'ORGANIZER' ? 'BTC' : 'Mua'})
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          )}
 
           {/* Scenarios */}
           <div style={{ marginBottom: 14 }}>

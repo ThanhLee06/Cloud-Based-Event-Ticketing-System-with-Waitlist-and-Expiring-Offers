@@ -12,7 +12,8 @@ import {
 } from './types';
 import { getInitialState } from './initialData';
 
-const STORAGE_KEY = 'eventflow_mock_store_v2';
+// v3: đổi role ATTENDEE → CUSTOMER (ST-007) nên bỏ dữ liệu mock cũ trong trình duyệt.
+const STORAGE_KEY = 'eventflow_mock_store_v3';
 
 interface MockStoreContextType {
   state: StoreState;
@@ -42,6 +43,11 @@ interface MockStoreContextType {
   promoteNextWaitlist: (eventId: string) => { success: boolean; message?: string };
   createEvent: (eventData: Partial<Event>) => Event;
   registerUser: (name: string, email: string) => DemoUser;
+  /**
+   * ST-007: Đồng bộ user thật (đăng nhập JWT) vào mock store để các màn hình còn dùng dữ liệu mẫu
+   * (vé, hàng chờ, ban tổ chức) chạy theo đúng danh tính thật. Truyền null khi đăng xuất.
+   */
+  syncAuthUser: (user: DemoUser | null) => void;
   loadScenario: (scenario: ScenarioType) => void;
   resetStore: () => void;
 }
@@ -811,7 +817,7 @@ export const MockStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       id: `user-${Date.now()}`,
       name: name.trim(),
       email: email.trim().toLowerCase(),
-      role: 'ATTENDEE',
+      role: 'CUSTOMER',
       avatar:
         'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&q=80',
     };
@@ -823,6 +829,35 @@ export const MockStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }));
 
     return newUser;
+  }, []);
+
+  const syncAuthUser = useCallback((user: DemoUser | null) => {
+    setState((prev) => {
+      if (!user) {
+        // Đăng xuất: quay về người dùng demo mặc định cho các màn hình mock.
+        const fallback = prev.users.find((u) => u.id === 'user-1') ?? prev.users[0];
+        return fallback && prev.currentUser.id !== fallback.id
+          ? { ...prev, currentUser: fallback }
+          : prev;
+      }
+      const existing = prev.users.find((u) => u.id === user.id);
+      const merged: DemoUser = { ...existing, ...user, avatar: user.avatar || existing?.avatar };
+      const same =
+        existing &&
+        prev.currentUser.id === user.id &&
+        existing.name === merged.name &&
+        existing.role === merged.role &&
+        existing.phone === merged.phone &&
+        existing.email === merged.email;
+      if (same) return prev;
+      return {
+        ...prev,
+        users: existing
+          ? prev.users.map((u) => (u.id === user.id ? merged : u))
+          : [...prev.users, merged],
+        currentUser: merged,
+      };
+    });
   }, []);
 
   // Chuyển đổi kịch bản demo (Scenario Switcher)
@@ -1035,6 +1070,7 @@ export const MockStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       promoteNextWaitlist,
       createEvent,
       registerUser,
+      syncAuthUser,
       loadScenario,
       resetStore,
     }),
@@ -1062,6 +1098,7 @@ export const MockStoreProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       promoteNextWaitlist,
       createEvent,
       registerUser,
+      syncAuthUser,
       loadScenario,
       resetStore,
     ]

@@ -1,14 +1,15 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMockStore } from '@lib/mock/store';
 import { UserPlus, ArrowRight } from 'lucide-react';
+import { useAuth, homePathForRole } from '@lib/auth/AuthProvider';
+import { getApiErrorMessage } from '@lib/api/client';
 
 const RegisterPage: React.FC = () => {
   const router = useRouter();
-  const { registerUser } = useMockStore();
+  const { register, user, status } = useAuth();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -16,7 +17,14 @@ const RegisterPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Đã đăng nhập mà vào /register → chuyển về trang phù hợp.
+  useEffect(() => {
+    if (status === 'authenticated' && user && !isSubmitting) {
+      router.replace(homePathForRole(user.role));
+    }
+  }, [status, user, isSubmitting, router]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
@@ -24,13 +32,20 @@ const RegisterPage: React.FC = () => {
       setErrorMessage('Vui lòng nhập đầy đủ họ tên và email');
       return;
     }
+    if (password.length < 6) {
+      setErrorMessage('Mật khẩu phải có ít nhất 6 ký tự.');
+      return;
+    }
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      registerUser(name, email);
-      setIsSubmitting(false);
+    try {
+      // ST-002: tạo tài khoản CUSTOMER thật trong PostgreSQL và đăng nhập luôn.
+      await register(name.trim(), email.trim(), password);
       router.push('/');
-    }, 400);
+    } catch (err) {
+      setErrorMessage(getApiErrorMessage(err, 'Đăng ký thất bại. Vui lòng thử lại.'));
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -63,12 +78,13 @@ const RegisterPage: React.FC = () => {
             lineHeight: 1.5,
           }}
         >
-          <strong>Chế độ thử nghiệm:</strong> Thông tin đăng ký được lưu cục bộ trong phiên trình
-          duyệt của bạn mà không gửi dữ liệu ra bên ngoài.
+          Tài khoản mới được tạo với vai trò <strong>Người mua</strong>. Ban tổ chức được Quản trị
+          viên cấp quyền sau khi đăng ký.
         </div>
 
         {errorMessage && (
           <div
+            role='alert'
             className='ef-badge-danger'
             style={{ padding: '10px 14px', borderRadius: 6, fontSize: '0.84rem', marginBottom: 16 }}
           >
@@ -120,6 +136,7 @@ const RegisterPage: React.FC = () => {
               name='password'
               type='password'
               required
+              minLength={6}
               autoComplete='new-password'
               placeholder='Tối thiểu 6 ký tự'
               value={password}
