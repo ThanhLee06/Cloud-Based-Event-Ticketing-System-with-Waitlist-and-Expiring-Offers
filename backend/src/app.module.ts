@@ -7,6 +7,7 @@ import { RequestIdMiddleware } from './common/request-id.middleware';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { AdminModule } from './admin/admin.module';
+import { OrganizerModule } from './organizer/organizer.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { AdminModule } from './admin/admin.module';
     AuthModule,
     UsersModule,
     AdminModule,
+    OrganizerModule,
     // Các thành viên đăng ký Module nghiệp vụ của mình tại đây:
     // - TV1: AuthModule, UsersModule, AdminModule
     // - TV2: EventsModule
