@@ -15,6 +15,7 @@ export interface PublicUser {
   status: UserStatus;
   avatar: string | null;
   phone: string | null;
+  emailVerifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -41,10 +42,40 @@ export async function login(email: string, password: string): Promise<PublicUser
   return data.user;
 }
 
-export async function register(name: string, email: string, password: string): Promise<PublicUser> {
-  const { data } = await api.post<AuthResponse>('/auth/register', { name, email, password });
+export interface RegisterResponse {
+  requiresVerification: true;
+  email: string;
+  emailSent: boolean;
+  resendAvailableInSec: number;
+  message: string;
+}
+
+export interface ResendResponse {
+  message: string;
+  emailSent: boolean;
+  resendAvailableInSec: number;
+}
+
+/** Đăng ký → backend gửi mã OTP qua email. Chưa có token cho tới khi xác thực. */
+export async function register(
+  name: string,
+  email: string,
+  password: string
+): Promise<RegisterResponse> {
+  const { data } = await api.post<RegisterResponse>('/auth/register', { name, email, password });
+  return data;
+}
+
+/** Nhập đúng mã OTP → xác thực email và đăng nhập luôn. */
+export async function verifyEmail(email: string, code: string): Promise<PublicUser> {
+  const { data } = await api.post<AuthResponse>('/auth/verify-email', { email, code });
   tokenStorage.set(data.accessToken);
   return data.user;
+}
+
+export async function resendVerification(email: string): Promise<ResendResponse> {
+  const { data } = await api.post<ResendResponse>('/auth/resend-verification', { email });
+  return data;
 }
 
 export function logout(): void {

@@ -372,6 +372,13 @@ const AdminPage: React.FC = () => {
                       >
                         {u.status === 'LOCKED' ? 'Đã khóa' : 'Hoạt động'}
                       </span>
+                      {!u.emailVerifiedAt && (
+                        <div
+                          style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}
+                        >
+                          Chưa xác thực email
+                        </div>
+                      )}
                     </td>
                     <td style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
                       {formatDateVN(u.createdAt)}
