@@ -5,6 +5,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { ACCESS_TOKEN_TTL_SECONDS } from './auth.types';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { EmailVerificationService } from './email-verification.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 
@@ -28,16 +29,17 @@ import { RolesGuard } from './guards/roles.guard';
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        // Chỉ áp dụng cho route có @UseGuards(ThrottlerGuard) — hiện là POST /auth/login.
+        // Chỉ áp dụng cho route có @UseGuards(ThrottlerGuard): login, register, verify-email,
+        // resend-verification — mỗi route đếm riêng theo IP.
         throttlers: [
           { name: 'login', ttl: 60_000, limit: config.get<number>('AUTH_LOGIN_RATE_LIMIT') ?? 10 },
         ],
-        errorMessage: 'Bạn đăng nhập quá nhiều lần. Vui lòng thử lại sau 1 phút.',
+        errorMessage: 'Bạn thao tác quá nhiều lần. Vui lòng thử lại sau 1 phút.',
       }),
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard, RolesGuard],
+  providers: [AuthService, EmailVerificationService, JwtAuthGuard, RolesGuard],
   exports: [JwtModule, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}
