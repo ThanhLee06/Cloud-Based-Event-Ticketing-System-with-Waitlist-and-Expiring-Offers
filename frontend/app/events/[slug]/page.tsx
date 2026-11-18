@@ -1,8 +1,15 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth, loginRedirectPath } from '@lib/auth/AuthProvider';
+import {
+  joinWaitlist as apiJoinWaitlist,
+  getMyWaitlist,
+  type MyWaitlistItemResponse,
+} from '@lib/api/waitlist';
+import { getApiErrorMessage } from '@lib/api/client';
 import { useMockStore } from '@lib/mock/store';
 import { useClientTime } from '@lib/hooks/useClientTime';
 import { formatVND, formatDateVN } from '@lib/utils/format';
@@ -20,32 +27,50 @@ import {
   ImageOff,
 } from 'lucide-react';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const EventDetailPage: React.FC = () => {
   const params = useParams();
   const router = useRouter();
   const slug = params?.slug as string;
+  const { status, loggedOutByUser } = useAuth();
+  const [realWaitlistEntry, setRealWaitlistEntry] = useState<MyWaitlistItemResponse | null>(null);
 
-  const {
-    getEvent,
-    getAvailableTickets,
-    getUserReservations,
-    getUserWaitlist,
-    getUserOffers,
-    createReservation,
-    joinWaitlist,
-    isHydrated,
-  } = useMockStore();
+  const { getEvent, getAvailableTickets, getUserReservations, createReservation, isHydrated } =
+    useMockStore();
   const now = useClientTime();
 
   const [loadingAction, setLoadingAction] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [imgError, setImgError] = useState(false);
 
+  const event = getEvent(slug);
+
+  const isRealEvent = Boolean(event && UUID_REGEX.test(event.id));
+
+  // Đồng bộ trạng thái hàng chờ và offer thực tế từ database cho sự kiện thật.
+  useEffect(() => {
+    if (status !== 'authenticated' || !isRealEvent || !event) return;
+    let active = true;
+    void getMyWaitlist()
+      .then((items) => {
+        if (!active) return;
+        const found = items.find(
+          (item) =>
+            item.eventId === event.id && (item.status === 'WAITING' || item.status === 'OFFERED')
+        );
+        setRealWaitlistEntry(found ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [status, isRealEvent, event]);
+
   if (!isHydrated) {
     return <div className='ef-loading'>Đang tải thông tin sự kiện...</div>;
   }
 
-  const event = getEvent(slug);
   if (!event) {
     return (
       <div className='ef-container-sm'>
@@ -76,12 +101,16 @@ const EventDetailPage: React.FC = () => {
   const activeHold = userReservations.find(
     (r) => r.eventId === event.id && r.status === 'HOLD' && new Date(r.expiresAt).getTime() > now
   );
-  const activeOffer = getUserOffers().find(
-    (o) => o.eventId === event.id && o.status === 'PENDING' && new Date(o.expiresAt).getTime() > now
-  );
-  const activeWaitlistEntry = getUserWaitlist().find(
-    (w) => w.eventId === event.id && w.status === 'WAITING'
-  );
+  // Không trộn hàng chờ/offer thật vào sự kiện dùng dữ liệu mẫu.
+  const activeOffer =
+    isRealEvent &&
+    realWaitlistEntry?.status === 'OFFERED' &&
+    realWaitlistEntry.pendingOffer &&
+    (now === 0 || new Date(realWaitlistEntry.pendingOffer.expiresAt).getTime() > now)
+      ? realWaitlistEntry.pendingOffer
+      : null;
+  const activeWaitlist =
+    isRealEvent && realWaitlistEntry?.status === 'WAITING' ? realWaitlistEntry : null;
 
   const handleBookTicket = () => {
     setLoadingAction(true);
@@ -94,15 +123,27 @@ const EventDetailPage: React.FC = () => {
     }, 350);
   };
 
-  const handleJoinWaitlist = () => {
+  const handleJoinWaitlist = async () => {
+    if (status === 'anonymous') {
+      router.push(loginRedirectPath(`/events/${slug}`, loggedOutByUser));
+      return;
+    }
+    if (!isRealEvent) {
+      setErrorMessage(
+        'Hàng chờ thật tạm khóa (BLOCKED_UPSTREAM: ST-010). Sự kiện cần được nạp qua GET /api/events/:slug khi hoàn thành ST-010.'
+      );
+      return;
+    }
     setLoadingAction(true);
     setErrorMessage(null);
-    setTimeout(() => {
-      const res = joinWaitlist(event.id);
+    try {
+      await apiJoinWaitlist(event.id);
+      router.push('/my-waitlist');
+    } catch (err) {
+      setErrorMessage(getApiErrorMessage(err, 'Không thể tham gia hàng chờ. Vui lòng thử lại.'));
+    } finally {
       setLoadingAction(false);
-      if (res.success) router.push('/my-waitlist');
-      else setErrorMessage(res.message || 'Không thể tham gia hàng chờ. Vui lòng thử lại.');
-    }, 350);
+    }
   };
 
   const linkCta = activeConfirmed
@@ -129,11 +170,11 @@ const EventDetailPage: React.FC = () => {
             href: `/offers/${activeOffer.id}`,
             btn: 'Xem lượt mua vé',
           }
-        : activeWaitlistEntry
+        : activeWaitlist
           ? {
               cls: 'ef-badge-neutral',
               Icon: Hourglass,
-              notice: `Đang ở số thứ tự #${activeWaitlistEntry.sequenceNo}`,
+              notice: `Đang ở số thứ tự #${activeWaitlist.sequenceNo}${activeWaitlist.currentRank ? ` (Vị trí #${activeWaitlist.currentRank})` : ''}`,
               href: '/my-waitlist',
               btn: 'Xem danh sách chờ',
             }
@@ -186,6 +227,40 @@ const EventDetailPage: React.FC = () => {
           <Ticket size={16} />
           <span>{loadingAction ? 'Đang xử lý...' : 'Đặt vé ngay'}</span>
         </button>
+      );
+    }
+
+    if (!isRealEvent) {
+      return (
+        <div style={{ width: '100%' }}>
+          <button
+            type='button'
+            disabled
+            className='ef-btn ef-btn-secondary ef-btn-full'
+            style={{
+              padding: isMobileBar ? '11px 18px' : '13px',
+              fontSize: '0.9rem',
+              cursor: 'not-allowed',
+              opacity: 0.85,
+            }}
+            title='Chờ API sự kiện thật (ST-010) từ Thành viên 2'
+          >
+            <Hourglass size={16} />
+            <span>Hàng chờ thật (Chờ ST-010)</span>
+          </button>
+          {!isMobileBar && (
+            <div
+              style={{
+                fontSize: '0.76rem',
+                color: 'var(--text-muted)',
+                textAlign: 'center',
+                marginTop: 8,
+              }}
+            >
+              Sự kiện mẫu (mock). Kết nối hàng chờ thật chờ API ST-010.
+            </div>
+          )}
+        </div>
       );
     }
 
