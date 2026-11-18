@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useAuth, loginRedirectPath, ROLE_LABELS } from '@lib/auth/AuthProvider';
 import { useMockStore } from '@lib/mock/store';
 import { formatVND, formatDateVN } from '@lib/utils/format';
 import { getApiErrorMessage } from '@lib/api/client';
@@ -32,8 +34,9 @@ import {
 } from 'lucide-react';
 
 const OrganizerPage: React.FC = () => {
-  const { currentUser, getAvailableTickets, createEvent, isHydrated } =
-    useMockStore();
+  const router = useRouter();
+  const { user: authUser, status: authStatus, loggedOutByUser, logout } = useAuth();
+  const { getAvailableTickets, createEvent, isHydrated } = useMockStore();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
@@ -67,7 +70,9 @@ const OrganizerPage: React.FC = () => {
       const [events, stats] = await Promise.all([getOrganizerEvents(), getOrganizerStats()]);
       setOrganizerEvents(events);
       setOrganizerStats(stats);
-      setSelectedEventId((current) => (events.some((event) => event.id === current) ? current : events[0]?.id ?? ''));
+      setSelectedEventId((current) =>
+        events.some((event) => event.id === current) ? current : (events[0]?.id ?? '')
+      );
       setApiError(null);
     } catch (error) {
       setApiError(getApiErrorMessage(error, 'Không tải được dữ liệu Organizer.'));
@@ -77,11 +82,17 @@ const OrganizerPage: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!isHydrated || (currentUser.role !== 'ORGANIZER' && currentUser.role !== 'ADMIN')) return;
-    void reloadDashboard();
-    // Load once when the authenticated identity is ready.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHydrated, currentUser.id, currentUser.role]);
+    if (authStatus === 'anonymous') {
+      router.replace(loginRedirectPath('/organizer', loggedOutByUser));
+      return;
+    }
+    if (
+      authStatus === 'authenticated' &&
+      (authUser?.role === 'ORGANIZER' || authUser?.role === 'ADMIN')
+    ) {
+      void reloadDashboard();
+    }
+  }, [authStatus, authUser?.id, authUser?.role, loggedOutByUser, router]);
 
   useEffect(() => {
     if (!selectedEventId) {
@@ -91,17 +102,23 @@ const OrganizerPage: React.FC = () => {
     }
     let cancelled = false;
     setDetailLoading(true);
-    Promise.allSettled([getOrganizerWaitlist(selectedEventId), getOrganizerAttendees(selectedEventId)]).then(
-      ([waitlistResult, attendeesResult]) => {
-        if (cancelled) return;
-        if (waitlistResult.status === 'fulfilled') setOrganizerWaitlist(waitlistResult.value);
-        else setApiError(getApiErrorMessage(waitlistResult.reason, 'Không tải được hàng chờ.'));
-        if (attendeesResult.status === 'fulfilled') setAttendees(attendeesResult.value);
-        else setApiError(getApiErrorMessage(attendeesResult.reason, 'Không tải được danh sách người tham dự.'));
-        setDetailLoading(false);
-      }
-    );
-    return () => { cancelled = true; };
+    Promise.allSettled([
+      getOrganizerWaitlist(selectedEventId),
+      getOrganizerAttendees(selectedEventId),
+    ]).then(([waitlistResult, attendeesResult]) => {
+      if (cancelled) return;
+      if (waitlistResult.status === 'fulfilled') setOrganizerWaitlist(waitlistResult.value);
+      else setApiError(getApiErrorMessage(waitlistResult.reason, 'Không tải được hàng chờ.'));
+      if (attendeesResult.status === 'fulfilled') setAttendees(attendeesResult.value);
+      else
+        setApiError(
+          getApiErrorMessage(attendeesResult.reason, 'Không tải được danh sách người tham dự.')
+        );
+      setDetailLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedEventId]);
 
   useEffect(() => {
@@ -121,11 +138,11 @@ const OrganizerPage: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showCreateModal]);
 
-  if (!isHydrated) {
+  if (authStatus === 'loading' || !isHydrated) {
     return <div className='ef-loading'>Đang tải bảng điều khiển Ban tổ chức...</div>;
   }
 
-  if (currentUser.role !== 'ORGANIZER' && currentUser.role !== 'ADMIN') {
+  if (!authUser || (authUser.role !== 'ORGANIZER' && authUser.role !== 'ADMIN')) {
     return (
       <div className='ef-container-sm'>
         <div className='ef-icon-circle ef-icon-circle-danger'>
@@ -135,17 +152,37 @@ const OrganizerPage: React.FC = () => {
           Khu vực dành cho Ban tổ chức
         </h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem', marginBottom: 28 }}>
-          Tài khoản hiện tại của bạn (<strong>{currentUser.name}</strong>) là tài khoản{' '}
-          <em>Người mua vé</em> và không có quyền truy cập kênh quản lý sự kiện.
+          {authUser ? (
+            <>
+              Tài khoản hiện tại của bạn (<strong>{authUser.name}</strong>) là{' '}
+              <em>{ROLE_LABELS[authUser.role]}</em> và không có quyền truy cập kênh quản lý sự kiện.
+            </>
+          ) : (
+            <>Vui lòng đăng nhập bằng tài khoản Ban tổ chức để quản lý sự kiện.</>
+          )}
         </p>
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
           <Link href='/' className='ef-btn ef-btn-primary'>
             <ArrowLeft size={16} />
             <span>Quay lại Khám phá</span>
           </Link>
-          <Link href='/login?next=/organizer' className='ef-btn ef-btn-secondary'>
-            Đăng nhập bằng tài khoản Ban tổ chức
-          </Link>
+          {authUser ? (
+            // Phải đăng xuất trước, nếu không /login sẽ thấy đang đăng nhập (tránh kẹt vòng lặp).
+            <button
+              type='button'
+              className='ef-btn ef-btn-secondary'
+              onClick={() => {
+                logout();
+                router.push('/login?next=/organizer');
+              }}
+            >
+              Đăng xuất & đăng nhập tài khoản Ban tổ chức
+            </button>
+          ) : (
+            <Link href='/login?next=/organizer' className='ef-btn ef-btn-secondary'>
+              Đăng nhập bằng tài khoản Ban tổ chức
+            </Link>
+          )}
         </div>
       </div>
     );
@@ -204,9 +241,13 @@ const OrganizerPage: React.FC = () => {
     setApiError(null);
     try {
       const result = await promoteOrganizerWaitlist(evtId);
-      setActionFeedback(`Đã cấp Offer cho người ở đầu hàng chờ. Hạn dùng đến ${formatDateVN(result.offer.expiresAt)}.`);
+      setActionFeedback(
+        `Đã cấp Offer cho người ở đầu hàng chờ. Hạn dùng đến ${formatDateVN(result.offer.expiresAt)}.`
+      );
       const [waitlist, stats, events] = await Promise.all([
-        getOrganizerWaitlist(evtId), getOrganizerStats(), getOrganizerEvents(),
+        getOrganizerWaitlist(evtId),
+        getOrganizerStats(),
+        getOrganizerEvents(),
       ]);
       setOrganizerWaitlist(waitlist);
       setOrganizerStats(stats);
@@ -307,8 +348,8 @@ const OrganizerPage: React.FC = () => {
             Kênh quản lý Ban tổ chức
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem' }}>
-            Quản trị các sự kiện do <strong>{currentUser.name}</strong> tổ chức. Theo dõi số lượng
-            vé, giữ chỗ và danh sách chờ.
+            Quản trị các sự kiện do <strong>{authUser.name}</strong> tổ chức. Theo dõi số lượng vé,
+            giữ chỗ và danh sách chờ.
           </p>
         </div>
 
@@ -341,7 +382,11 @@ const OrganizerPage: React.FC = () => {
       )}
 
       {apiError && (
-        <div className='ef-badge-danger' role='alert' style={{ padding: '12px 16px', borderRadius: 8, marginBottom: 20 }}>
+        <div
+          className='ef-badge-danger'
+          role='alert'
+          style={{ padding: '12px 16px', borderRadius: 8, marginBottom: 20 }}
+        >
           {apiError}
         </div>
       )}
@@ -388,7 +433,10 @@ const OrganizerPage: React.FC = () => {
 
       {/* Main Section */}
       {apiLoading ? (
-        <div className='ef-card' style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>
+        <div
+          className='ef-card'
+          style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}
+        >
           Đang tải dữ liệu Organizer...
         </div>
       ) : myEvents.length > 0 ? (
@@ -575,10 +623,15 @@ const OrganizerPage: React.FC = () => {
                   onClick={() => handlePromote(selectedEvent.id)}
                   className='ef-btn ef-btn-primary'
                   style={{ padding: '9px 16px', fontSize: '0.84rem' }}
-                  disabled={promoting || selectedEvent.soldCount + selectedEvent.reservedCount >= selectedEvent.capacity}
+                  disabled={
+                    promoting ||
+                    selectedEvent.soldCount + selectedEvent.reservedCount >= selectedEvent.capacity
+                  }
                 >
                   <Send size={15} />
-                  <span>{promoting ? 'Đang cấp Offer...' : 'Cấp quyền mua cho người tiếp theo (FIFO)'}</span>
+                  <span>
+                    {promoting ? 'Đang cấp Offer...' : 'Cấp quyền mua cho người tiếp theo (FIFO)'}
+                  </span>
                 </button>
               </div>
 
@@ -650,7 +703,9 @@ const OrganizerPage: React.FC = () => {
                               </td>
                               <td style={{ padding: '8px 12px' }}>
                                 <div>{w.name}</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{w.email}</div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                  {w.email}
+                                </div>
                               </td>
                               <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>
                                 {formatDateVN(w.joinedAt)}
@@ -687,10 +742,23 @@ const OrganizerPage: React.FC = () => {
               </div>
 
               <div style={{ marginTop: 28 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                    flexWrap: 'wrap',
+                    marginBottom: 12,
+                  }}
+                >
                   <div>
-                    <h3 style={{ fontSize: '1.05rem', fontWeight: 700 }}>Danh sách người tham dự đã xác nhận ({attendees.length})</h3>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: 4 }}>Chỉ hiển thị vé đã xác nhận.</p>
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 700 }}>
+                      Danh sách người tham dự đã xác nhận ({attendees.length})
+                    </h3>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: 4 }}>
+                      Chỉ hiển thị vé đã xác nhận.
+                    </p>
                   </div>
                   <button
                     type='button'
@@ -702,34 +770,82 @@ const OrganizerPage: React.FC = () => {
                   </button>
                 </div>
                 {detailLoading ? (
-                  <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>Đang tải danh sách...</div>
+                  <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>
+                    Đang tải danh sách...
+                  </div>
                 ) : attendees.length > 0 ? (
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflowX: 'auto', maxWidth: '100%' }}>
-                    <table style={{ width: '100%', minWidth: 680, borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+                  <div
+                    style={{
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      overflowX: 'auto',
+                      maxWidth: '100%',
+                    }}
+                  >
+                    <table
+                      style={{
+                        width: '100%',
+                        minWidth: 680,
+                        borderCollapse: 'collapse',
+                        fontSize: '0.84rem',
+                      }}
+                    >
                       <thead>
-                        <tr style={{ backgroundColor: '#f4f4f5', borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                        <tr
+                          style={{
+                            backgroundColor: '#f4f4f5',
+                            borderBottom: '1px solid var(--border)',
+                            textAlign: 'left',
+                            color: 'var(--text-muted)',
+                          }}
+                        >
                           <th style={{ padding: '9px 12px' }}>Mã vé</th>
                           <th style={{ padding: '9px 12px' }}>Người tham dự</th>
                           <th style={{ padding: '9px 12px' }}>Email</th>
                           <th style={{ padding: '9px 12px' }}>Nguồn vé</th>
-                          <th style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>Ngày xác nhận</th>
+                          <th style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>
+                            Ngày xác nhận
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {attendees.map((attendee) => (
-                          <tr key={attendee.ticketCode} style={{ borderBottom: '1px solid #f4f4f5' }}>
-                            <td style={{ padding: '9px 12px', fontWeight: 600, whiteSpace: 'nowrap' }}>{attendee.ticketCode}</td>
+                          <tr
+                            key={attendee.ticketCode}
+                            style={{ borderBottom: '1px solid #f4f4f5' }}
+                          >
+                            <td
+                              style={{ padding: '9px 12px', fontWeight: 600, whiteSpace: 'nowrap' }}
+                            >
+                              {attendee.ticketCode}
+                            </td>
                             <td style={{ padding: '9px 12px' }}>{attendee.name}</td>
                             <td style={{ padding: '9px 12px' }}>{attendee.email}</td>
-                            <td style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>{attendee.source === 'WAITLIST_OFFER' ? 'Offer hàng chờ' : 'Mua trực tiếp'}</td>
-                            <td style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>{formatDateVN(attendee.confirmedAt)}</td>
+                            <td style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>
+                              {attendee.source === 'WAITLIST_OFFER'
+                                ? 'Offer hàng chờ'
+                                : 'Mua trực tiếp'}
+                            </td>
+                            <td style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>
+                              {formatDateVN(attendee.confirmedAt)}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                 ) : (
-                  <div style={{ padding: 22, textAlign: 'center', backgroundColor: 'var(--canvas)', borderRadius: 8, color: 'var(--text-muted)', fontSize: '0.86rem', border: '1px solid var(--border)' }}>
+                  <div
+                    style={{
+                      padding: 22,
+                      textAlign: 'center',
+                      backgroundColor: 'var(--canvas)',
+                      borderRadius: 8,
+                      color: 'var(--text-muted)',
+                      fontSize: '0.86rem',
+                      border: '1px solid var(--border)',
+                    }}
+                  >
                     Chưa có người tham dự nào được xác nhận.
                   </div>
                 )}

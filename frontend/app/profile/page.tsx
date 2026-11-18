@@ -7,6 +7,7 @@ import { useAuth, ROLE_LABELS, loginRedirectPath } from '@lib/auth/AuthProvider'
 import { changePassword, updateMe } from '@lib/api/auth';
 import { getApiErrorMessage } from '@lib/api/client';
 import { formatDateVN } from '@lib/utils/format';
+import PasswordInput from '@components/Form/PasswordInput';
 
 type Notice = { type: 'success' | 'error'; text: string } | null;
 
@@ -214,10 +215,8 @@ const ProfilePage: React.FC = () => {
               <label htmlFor='pw-old' className='ef-label'>
                 Mật khẩu hiện tại
               </label>
-              <input
+              <PasswordInput
                 id='pw-old'
-                className='ef-input'
-                type='password'
                 autoComplete='current-password'
                 required
                 value={oldPassword}
@@ -228,10 +227,8 @@ const ProfilePage: React.FC = () => {
               <label htmlFor='pw-new' className='ef-label'>
                 Mật khẩu mới (tối thiểu 6 ký tự)
               </label>
-              <input
+              <PasswordInput
                 id='pw-new'
-                className='ef-input'
-                type='password'
                 autoComplete='new-password'
                 required
                 minLength={6}
@@ -243,10 +240,8 @@ const ProfilePage: React.FC = () => {
               <label htmlFor='pw-confirm' className='ef-label'>
                 Nhập lại mật khẩu mới
               </label>
-              <input
+              <PasswordInput
                 id='pw-confirm'
-                className='ef-input'
-                type='password'
                 autoComplete='new-password'
                 required
                 minLength={6}

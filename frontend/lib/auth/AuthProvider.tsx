@@ -15,7 +15,7 @@ import { useMockStore } from '@lib/mock/store';
 import type { DemoUser } from '@lib/mock/types';
 import { onUnauthorized, tokenStorage } from '@lib/api/client';
 import * as authApi from '@lib/api/auth';
-import type { PublicUser, UserRole } from '@lib/api/auth';
+import type { PublicUser, RegisterResponse, UserRole } from '@lib/api/auth';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
 
@@ -25,7 +25,10 @@ interface AuthContextValue {
   /** true ngay sau khi người dùng tự bấm Đăng xuất — trang bảo vệ không gắn ?next= khi chuyển về /login. */
   loggedOutByUser: boolean;
   login: (email: string, password: string) => Promise<PublicUser>;
-  register: (name: string, email: string, password: string) => Promise<PublicUser>;
+  /** Tạo tài khoản và gửi mã OTP — chưa đăng nhập, phải gọi verifyEmail sau đó. */
+  register: (name: string, email: string, password: string) => Promise<RegisterResponse>;
+  /** Nhập đúng mã OTP → đăng nhập luôn. */
+  verifyEmail: (email: string, code: string) => Promise<PublicUser>;
   logout: () => void;
   /** Tải lại user từ server (sau khi Admin đổi quyền, sau khi sửa hồ sơ...). */
   refreshUser: () => Promise<PublicUser | null>;
@@ -129,8 +132,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const register = useCallback(
-    async (name: string, email: string, password: string) => {
-      const u = await authApi.register(name, email, password);
+    (name: string, email: string, password: string) => authApi.register(name, email, password),
+    []
+  );
+
+  const verifyEmail = useCallback(
+    async (email: string, code: string) => {
+      const u = await authApi.verifyEmail(email, code);
       setUser(u);
       return u;
     },
@@ -144,8 +152,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [clearSession, syncAuthUser]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user, status, loggedOutByUser, login, register, logout, refreshUser, setUser }),
-    [user, status, loggedOutByUser, login, register, logout, refreshUser, setUser]
+    () => ({
+      user,
+      status,
+      loggedOutByUser,
+      login,
+      register,
+      verifyEmail,
+      logout,
+      refreshUser,
+      setUser,
+    }),
+    [user, status, loggedOutByUser, login, register, verifyEmail, logout, refreshUser, setUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

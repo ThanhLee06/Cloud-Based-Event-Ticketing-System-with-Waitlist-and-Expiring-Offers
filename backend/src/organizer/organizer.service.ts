@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { AuthUser } from '../auth/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
+import { WaitlistService } from '../waitlist/waitlist.service';
 
 export interface OrganizerStats {
   totalEvents: number;
@@ -35,18 +36,12 @@ export interface AttendeeRow {
   confirmedAt: Date;
 }
 
-interface PromotionEventRow {
-  id: string;
-  organizerId: string;
-  capacity: number;
-  soldCount: number;
-  reservedCount: number;
-  priceVnd: number;
-}
-
 @Injectable()
 export class OrganizerService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly waitlistService: WaitlistService
+  ) {}
 
   private async assertEventAccess(user: AuthUser, eventId: string): Promise<EventAccessRow> {
     const rows = await this.prisma.$queryRaw<EventAccessRow[]>`
@@ -77,74 +72,24 @@ export class OrganizerService {
 
   async promoteNextWaitlist(user: AuthUser, eventId: string) {
     await this.assertEventAccess(user, eventId);
-
-    return this.prisma.$transaction(async (tx) => {
-      // Serialize promotions for this event so concurrent clicks cannot offer the same slot twice.
-      const events = await tx.$queryRaw<PromotionEventRow[]>`
-        SELECT id, organizer_id AS "organizerId", capacity,
-               sold_count AS "soldCount", reserved_count AS "reservedCount",
-               price_vnd AS "priceVnd"
-        FROM events
-        WHERE id = ${eventId}::uuid
-        FOR UPDATE
-      `;
-      const event = events[0];
-      if (!event) throw new NotFoundException('Không tìm thấy sự kiện.');
-      if (user.role !== 'ADMIN' && event.organizerId !== user.id) {
-        throw new ForbiddenException('Bạn không có quyền quản lý sự kiện này.');
+    const result = await this.waitlistService.promoteNextWaitlist(eventId);
+    if (!result.promoted) {
+      if (result.reason === 'EVENT_NOT_FOUND') {
+        throw new NotFoundException('Không tìm thấy sự kiện.');
       }
-      if (event.soldCount + event.reservedCount >= event.capacity) {
-        throw new ConflictException({ statusCode: 409, message: 'Sự kiện đã hết chỗ trống.', code: 'EVENT_FULL' });
-      }
-
-      const entries = await tx.$queryRaw<Array<{ id: string; userId: string }>>`
-        SELECT id, user_id AS "userId"
-        FROM waitlist_entries
-        WHERE event_id = ${eventId}::uuid AND status = 'WAITING'
-        ORDER BY sequence_no ASC, joined_at ASC, id ASC
-        LIMIT 1
-        FOR UPDATE
-      `;
-      const entry = entries[0];
-      if (!entry) {
-        throw new ConflictException({ statusCode: 409, message: 'Không còn người trong hàng chờ.', code: 'WAITLIST_EMPTY' });
-      }
-
-      const reservationRows = await tx.$queryRaw<Array<{ id: string }>>`
-        INSERT INTO reservations (event_id, user_id, source, status, price_vnd, expires_at, created_at)
-        VALUES (
-          ${eventId}::uuid, ${entry.userId}::uuid, 'WAITLIST_OFFER', 'HOLD',
-          ${event.priceVnd}, CURRENT_TIMESTAMP + INTERVAL '5 minutes', CURRENT_TIMESTAMP
-        )
-        RETURNING id
-      `;
-      const reservationId = reservationRows[0].id;
-
-      const offerRows = await tx.$queryRaw<Array<{ id: string; expiresAt: Date }>>`
-        INSERT INTO offers (
-          reservation_id, waitlist_entry_id, event_id, user_id, status, expires_at, created_at
-        )
-        VALUES (
-          ${reservationId}::uuid, ${entry.id}::uuid, ${eventId}::uuid, ${entry.userId}::uuid,
-          'PENDING', CURRENT_TIMESTAMP + INTERVAL '5 minutes', CURRENT_TIMESTAMP
-        )
-        RETURNING id, expires_at AS "expiresAt"
-      `;
-
-      await tx.$executeRaw`
-        UPDATE waitlist_entries SET status = 'OFFERED' WHERE id = ${entry.id}::uuid
-      `;
-      await tx.$executeRaw`
-        UPDATE events SET reserved_count = reserved_count + 1 WHERE id = ${eventId}::uuid
-      `;
-
-      return {
-        promoted: true,
-        waitlistEntryId: entry.id,
-        reservationId,
-        offer: { id: offerRows[0].id, expiresAt: offerRows[0].expiresAt },
-      };
-    });
+      const isFull = result.reason === 'NO_CAPACITY';
+      throw new ConflictException({
+        statusCode: 409,
+        message: isFull ? 'Sự kiện đã hết chỗ trống.' : 'Không còn người trong hàng chờ.',
+        code: isFull ? 'EVENT_FULL' : 'WAITLIST_EMPTY',
+      });
+    }
+    return {
+      promoted: true,
+      waitlistEntryId: result.waitlistEntryId,
+      reservationId: result.reservationId,
+      offer: { id: result.offerId, expiresAt: result.expiresAt },
+    };
   }
 
   async getAttendees(user: AuthUser, eventId: string): Promise<AttendeeRow[]> {

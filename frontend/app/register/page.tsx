@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { UserPlus, ArrowRight } from 'lucide-react';
 import { useAuth, homePathForRole } from '@lib/auth/AuthProvider';
-import { getApiErrorMessage } from '@lib/api/client';
+import { getApiErrorCode, getApiErrorMessage } from '@lib/api/client';
+import PasswordInput from '@components/Form/PasswordInput';
 
 const RegisterPage: React.FC = () => {
   const router = useRouter();
@@ -14,6 +15,9 @@ const RegisterPage: React.FC = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [confirmTouched, setConfirmTouched] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -24,9 +28,17 @@ const RegisterPage: React.FC = () => {
     }
   }, [status, user, isSubmitting, router]);
 
+  const passwordsMismatch = confirmPassword.length > 0 && confirmPassword !== password;
+
+  const goToVerify = (targetEmail: string, sent: boolean) => {
+    const params = new URLSearchParams({ email: targetEmail, sent: sent ? '1' : '0' });
+    router.push(`/verify-email?${params.toString()}`);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setUnverifiedEmail(null);
 
     if (!name.trim() || !email.trim()) {
       setErrorMessage('Vui lòng nhập đầy đủ họ tên và email');
@@ -36,13 +48,21 @@ const RegisterPage: React.FC = () => {
       setErrorMessage('Mật khẩu phải có ít nhất 6 ký tự.');
       return;
     }
+    if (password !== confirmPassword) {
+      setConfirmTouched(true);
+      setErrorMessage('Mật khẩu nhập lại không khớp.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
-      // ST-002: tạo tài khoản CUSTOMER thật trong PostgreSQL và đăng nhập luôn.
-      await register(name.trim(), email.trim(), password);
-      router.push('/');
+      // Tạo tài khoản CUSTOMER (chưa xác thực) → backend gửi mã OTP 6 số qua email.
+      const res = await register(name.trim(), email.trim(), password);
+      goToVerify(res.email, res.emailSent);
     } catch (err) {
+      if (getApiErrorCode(err) === 'EMAIL_NOT_VERIFIED') {
+        setUnverifiedEmail(email.trim().toLowerCase());
+      }
       setErrorMessage(getApiErrorMessage(err, 'Đăng ký thất bại. Vui lòng thử lại.'));
       setIsSubmitting(false);
     }
@@ -78,8 +98,8 @@ const RegisterPage: React.FC = () => {
             lineHeight: 1.5,
           }}
         >
-          Tài khoản mới được tạo với vai trò <strong>Người mua</strong>. Ban tổ chức được Quản trị
-          viên cấp quyền sau khi đăng ký.
+          Sau khi đăng ký, chúng tôi gửi <strong>mã xác thực 6 số</strong> tới email của bạn. Tài
+          khoản mới có vai trò <strong>Người mua</strong>; Ban tổ chức do Quản trị viên cấp quyền.
         </div>
 
         {errorMessage && (
@@ -89,6 +109,25 @@ const RegisterPage: React.FC = () => {
             style={{ padding: '10px 14px', borderRadius: 6, fontSize: '0.84rem', marginBottom: 16 }}
           >
             {errorMessage}
+            {unverifiedEmail && (
+              <div style={{ marginTop: 8 }}>
+                <button
+                  type='button'
+                  onClick={() => goToVerify(unverifiedEmail, false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    color: 'inherit',
+                    fontWeight: 700,
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Nhập mã xác thực cho {unverifiedEmail}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -131,23 +170,56 @@ const RegisterPage: React.FC = () => {
             <label htmlFor='register-password-input' className='ef-label'>
               Mật khẩu *
             </label>
-            <input
+            <PasswordInput
               id='register-password-input'
               name='password'
-              type='password'
               required
               minLength={6}
               autoComplete='new-password'
               placeholder='Tối thiểu 6 ký tự'
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className='ef-input'
             />
+          </div>
+
+          <div>
+            <label htmlFor='register-confirm-input' className='ef-label'>
+              Nhập lại mật khẩu *
+            </label>
+            <PasswordInput
+              id='register-confirm-input'
+              name='confirmPassword'
+              required
+              minLength={6}
+              autoComplete='new-password'
+              placeholder='Nhập lại mật khẩu ở trên'
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              onBlur={() => setConfirmTouched(true)}
+              aria-invalid={confirmTouched && passwordsMismatch}
+              aria-describedby={
+                confirmTouched && passwordsMismatch ? 'register-confirm-hint' : undefined
+              }
+              style={
+                confirmTouched && passwordsMismatch
+                  ? { borderColor: 'var(--danger-text)' }
+                  : undefined
+              }
+            />
+            {confirmTouched && passwordsMismatch && (
+              <div
+                id='register-confirm-hint'
+                role='alert'
+                style={{ fontSize: '0.78rem', color: 'var(--danger-text)', marginTop: 6 }}
+              >
+                Mật khẩu nhập lại không khớp.
+              </div>
+            )}
           </div>
 
           <button
             type='submit'
-            disabled={isSubmitting}
+            disabled={isSubmitting || passwordsMismatch}
             className='ef-btn ef-btn-primary ef-btn-full'
           >
             <span>{isSubmitting ? 'Đang tạo tài khoản...' : 'Đăng ký tài khoản'}</span>

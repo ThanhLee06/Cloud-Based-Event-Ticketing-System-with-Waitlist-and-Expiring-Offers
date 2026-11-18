@@ -4,10 +4,14 @@ import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './health/health.module';
 import { RequestIdMiddleware } from './common/request-id.middleware';
+import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { AdminModule } from './admin/admin.module';
 import { OrganizerModule } from './organizer/organizer.module';
+import { WaitlistModule } from './waitlist/waitlist.module';
+import { OffersModule } from './offers/offers.module';
+import { JobsModule } from './jobs/jobs.module';
 
 @Module({
   imports: [
@@ -17,10 +21,14 @@ import { OrganizerModule } from './organizer/organizer.module';
     }),
     PrismaModule,
     HealthModule,
+    MailModule,
     AuthModule,
     UsersModule,
     AdminModule,
     OrganizerModule,
+    WaitlistModule,
+    OffersModule,
+    JobsModule,
     // Các thành viên đăng ký Module nghiệp vụ của mình tại đây:
     // - TV1: AuthModule, UsersModule, AdminModule
     // - TV2: EventsModule

@@ -40,18 +40,26 @@ enum UserStatus {
 }
 
 model User {
-  id           String     @id @default(uuid()) @db.Uuid
-  name         String     @db.VarChar(120)
-  email        String     @unique @db.VarChar(255)
-  passwordHash String     @map("password_hash") @db.VarChar(255)
-  role         UserRole   @default(CUSTOMER)
-  status       UserStatus @default(ACTIVE)
-  avatar       String?    @db.VarChar(500)
-  phone        String?    @db.VarChar(20)
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id              String     @id @default(uuid()) @db.Uuid
+  name            String     @db.VarChar(120)
+  email           String     @unique @db.VarChar(255)
+  passwordHash    String     @map("password_hash") @db.VarChar(255)
+  role            UserRole   @default(CUSTOMER)
+  status          UserStatus @default(ACTIVE)
+  avatar          String?    @db.VarChar(500)
+  phone           String?    @db.VarChar(20)
+  /// Thời điểm xác thực email bằng OTP. null = chưa xác thực → chưa được đăng nhập.
+  emailVerifiedAt DateTime?  @map("email_verified_at") @db.Timestamptz(3)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  auditLogs AuditLog[]
+  auditLogs          AuditLog[]
+  emailVerifications EmailVerification[]
+  organizedEvents    Event[]
+  reservations       Reservation[]
+  idempotencyRecords IdempotencyRecord[]
+  waitlistEntries    WaitlistEntry[]
+  offers             Offer[]
 
   @@index([role])
   @@index([status])
@@ -74,4 +82,180 @@ model AuditLog {
   @@index([actorId])
   @@index([targetType, targetId])
   @@map("audit_logs")
+}
+
+/// Mã OTP xác thực email. Chỉ lưu hash của mã, mã hết hạn sau 10 phút, tối đa 5 lần nhập sai.
+model EmailVerification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  codeHash  String   @map("code_hash") @db.VarChar(128)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("email_verifications")
+}
+
+// ===================== TV2 · ST-008: Sự kiện & Ràng buộc sức chứa =====================
+
+model Event {
+  id              String   @id @default(uuid()) @db.Uuid
+  slug            String   @unique @db.VarChar(180)
+  title           String   @db.VarChar(255)
+  category        String   @db.VarChar(100)
+  description     String   @db.Text
+  venue           String   @db.VarChar(255)
+  address         String   @db.VarChar(500)
+  city            String   @db.VarChar(100)
+  poster          String   @db.VarChar(500)
+  priceVnd        Int      @map("price_vnd")
+  startsAt        DateTime @map("starts_at") @db.Timestamptz(3)
+  salesCloseAt    DateTime @map("sales_close_at") @db.Timestamptz(3)
+  capacity        Int
+  reservedCount   Int      @default(0) @map("reserved_count")
+  soldCount       Int      @default(0) @map("sold_count")
+  organizerId     String   @map("organizer_id") @db.Uuid
+  nextWaitlistSeq Int      @default(1) @map("next_waitlist_seq")
+  featured        Boolean  @default(false)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organizer       User            @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+  reservations    Reservation[]
+  waitlistEntries WaitlistEntry[]
+  offers          Offer[]
+
+  // CHECK constraints (capacity > 0, sold_count >= 0, reserved_count >= 0,
+  // (sold_count + reserved_count) <= capacity, price_vnd >= 0, next_waitlist_seq >= 1)
+  // được định nghĩa trực tiếp trong SQL migration.
+  @@index([city])
+  @@index([category])
+  @@index([organizerId])
+  @@index([featured(sort: Desc), startsAt(sort: Asc)])
+  @@map("events")
+}
+
+// ===================== TV3 · ST-015: Đặt vé (Reservations) & Idempotency =====================
+
+/// Nguồn tạo đơn giữ chỗ: đặt trực tiếp hoặc qua lượt Offer từ hàng chờ.
+enum ReservationSource {
+  DIRECT
+  WAITLIST_OFFER
+
+  @@map("reservation_source")
+}
+
+/// Trạng thái đơn giữ chỗ / vé đã xác nhận.
+enum ReservationStatus {
+  HOLD
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+
+  @@map("reservation_status")
+}
+
+model Reservation {
+  id             String            @id @default(uuid()) @db.Uuid
+  eventId        String            @map("event_id") @db.Uuid
+  userId         String            @map("user_id") @db.Uuid
+  source         ReservationSource @default(DIRECT)
+  status         ReservationStatus @default(HOLD)
+  priceVnd       Int               @map("price_vnd")
+  expiresAt      DateTime          @map("expires_at") @db.Timestamptz(3)
+  ticketCode     String?           @unique @map("ticket_code") @db.VarChar(64)
+  receiptContent Json?             @map("receipt_content") @db.JsonB
+  confirmedAt    DateTime?         @map("confirmed_at") @db.Timestamptz(3)
+  cancelledAt    DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  event Event  @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  user  User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  offer Offer?
+
+  // Partial Unique Index UNIQUE (user_id, event_id) WHERE status IN ('HOLD', 'CONFIRMED')
+  // và CHECK constraints được định nghĩa trực tiếp trong SQL migration.
+  @@index([status, expiresAt])
+  @@index([userId, status])
+  @@index([eventId])
+  @@map("reservations")
+}
+
+model IdempotencyRecord {
+  requestId      String   @id @map("request_id") @db.VarChar(128)
+  userId         String   @map("user_id") @db.Uuid
+  endpoint       String   @db.VarChar(120)
+  responseStatus Int      @map("response_status")
+  responseBody   Json     @map("response_body") @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("idempotency_records")
+}
+
+// ===================== TV4 · ST-022: Hàng chờ FIFO & Quyền mua vé (Offers) =====================
+
+/// Trạng thái lượt đăng ký trong hàng chờ FIFO.
+enum WaitlistStatus {
+  WAITING
+  OFFERED
+  FULFILLED
+  EXPIRED
+  CANCELLED
+
+  @@map("waitlist_status")
+}
+
+/// Trạng thái quyền mua vé có thời hạn (Expiring Offer).
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+
+  @@map("offer_status")
+}
+
+model WaitlistEntry {
+  id         String         @id @default(uuid()) @db.Uuid
+  eventId    String         @map("event_id") @db.Uuid
+  userId     String         @map("user_id") @db.Uuid
+  sequenceNo Int            @map("sequence_no")
+  status     WaitlistStatus @default(WAITING)
+  joinedAt   DateTime       @default(now()) @map("joined_at") @db.Timestamptz(3)
+
+  event Event  @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  user  User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  offer Offer?
+
+  // Partial Unique Index UNIQUE (user_id, event_id) WHERE status IN ('WAITING', 'OFFERED')
+  // được định nghĩa trực tiếp trong SQL migration (Prisma 6 DSL chưa hỗ trợ WHERE trên @@unique).
+  @@unique([eventId, sequenceNo])
+  @@index([eventId, status, sequenceNo])
+  @@map("waitlist_entries")
+}
+
+model Offer {
+  id              String      @id @default(uuid()) @db.Uuid
+  reservationId   String      @unique @map("reservation_id") @db.Uuid
+  waitlistEntryId String      @unique @map("waitlist_entry_id") @db.Uuid
+  eventId         String      @map("event_id") @db.Uuid
+  userId          String      @map("user_id") @db.Uuid
+  status          OfferStatus @default(PENDING)
+  expiresAt       DateTime    @map("expires_at") @db.Timestamptz(3)
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  acceptedAt      DateTime?   @map("accepted_at") @db.Timestamptz(3)
+
+  reservation   Reservation   @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  waitlistEntry WaitlistEntry @relation(fields: [waitlistEntryId], references: [id], onDelete: Restrict)
+  event         Event         @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  user          User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([status, expiresAt])
+  @@map("offers")
 }
