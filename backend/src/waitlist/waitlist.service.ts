@@ -11,7 +11,7 @@ import {
 import { Prisma, ReservationStatus, WaitlistStatus } from '@prisma/client';
 import { DEFAULT_TX_OPTIONS, isTransientPgConflict, runWithPgRetry } from '../common/pg-tx.util';
 import { PrismaService } from '../prisma/prisma.service';
-import type { JoinWaitlistResponse } from './dto/join-waitlist.dto';
+import type { JoinWaitlistResponse, MyWaitlistItemResponse } from './dto/join-waitlist.dto';
 
 interface LockedEventRow {
   id: string;
@@ -20,6 +20,25 @@ interface LockedEventRow {
   soldCount: number;
   nextWaitlistSeq: number;
   priceVnd: number;
+}
+
+interface RawMyWaitlistRow {
+  id: string;
+  eventId: string;
+  sequenceNo: number;
+  status: string;
+  joinedAt: Date;
+  currentRank: number | null;
+  eventTitle: string;
+  eventSlug: string;
+  eventCategory: string;
+  eventVenue: string;
+  eventCity: string;
+  eventStartsAt: Date;
+  eventPoster: string;
+  offerId: string | null;
+  offerStatus: string | null;
+  offerExpiresAt: Date | null;
 }
 
 // Tăng trần chờ cho burst đồng thời lớn trên hàng chờ sự kiện.
@@ -36,6 +55,48 @@ export class WaitlistService {
 
   async joinWaitlist(userId: string, eventId: string): Promise<JoinWaitlistResponse> {
     return runWithPgRetry(() => this.runJoinTransaction(userId, eventId), 2, (err) => this.mapError(err, eventId));
+  }
+
+  async getMyWaitlist(userId: string): Promise<MyWaitlistItemResponse[]> {
+    const rows = await this.prisma.$queryRaw<RawMyWaitlistRow[]>`
+      SELECT
+        w."id"::text AS "id", w."event_id"::text AS "eventId", w."sequence_no" AS "sequenceNo",
+        w."status"::text AS "status", w."joined_at" AS "joinedAt",
+        CASE
+          WHEN w."status" = 'WAITING' THEN 1 + (
+            SELECT COUNT(*)::int FROM "waitlist_entries" w2
+            WHERE w2."event_id" = w."event_id" AND w2."status" = 'WAITING' AND w2."sequence_no" < w."sequence_no"
+          )
+          ELSE NULL
+        END AS "currentRank",
+        e."title" AS "eventTitle", e."slug" AS "eventSlug", e."category" AS "eventCategory",
+        e."venue" AS "eventVenue", e."city" AS "eventCity", e."starts_at" AS "eventStartsAt", e."poster" AS "eventPoster",
+        o."id"::text AS "offerId", o."status"::text AS "offerStatus", o."expires_at" AS "offerExpiresAt"
+      FROM "waitlist_entries" w
+      INNER JOIN "events" e ON e."id" = w."event_id"
+      LEFT JOIN "offers" o ON o."waitlist_entry_id" = w."id" AND o."status" = 'PENDING'
+      WHERE w."user_id" = CAST(${userId} AS uuid)
+      ORDER BY w."joined_at" DESC, w."sequence_no" DESC, w."id" DESC
+    `;
+    return rows.map((r) => ({
+      id: r.id,
+      eventId: r.eventId,
+      sequenceNo: r.sequenceNo,
+      status: r.status as WaitlistStatus,
+      joinedAt: r.joinedAt,
+      currentRank: r.currentRank,
+      event: {
+        id: r.eventId,
+        title: r.eventTitle,
+        slug: r.eventSlug,
+        category: r.eventCategory,
+        venue: r.eventVenue,
+        city: r.eventCity,
+        startsAt: r.eventStartsAt,
+        poster: r.eventPoster,
+      },
+      pendingOffer: r.offerId ? { id: r.offerId, status: r.offerStatus!, expiresAt: r.offerExpiresAt! } : null,
+    }));
   }
 
   private async runJoinTransaction(userId: string, eventId: string): Promise<JoinWaitlistResponse> {
