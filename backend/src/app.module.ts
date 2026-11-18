@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { AdminModule } from './admin/admin.module';
 import { WaitlistModule } from './waitlist/waitlist.module';
+import { OffersModule } from './offers/offers.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { WaitlistModule } from './waitlist/waitlist.module';
     UsersModule,
     AdminModule,
     WaitlistModule,
+    OffersModule,
     // Các thành viên đăng ký Module nghiệp vụ của mình tại đây:
     // - TV1: AuthModule, UsersModule, AdminModule
     // - TV2: EventsModule
