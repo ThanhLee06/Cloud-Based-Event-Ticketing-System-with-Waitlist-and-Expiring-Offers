@@ -9,6 +9,7 @@ import { UsersModule } from './users/users.module';
 import { AdminModule } from './admin/admin.module';
 import { WaitlistModule } from './waitlist/waitlist.module';
 import { OffersModule } from './offers/offers.module';
+import { JobsModule } from './jobs/jobs.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { OffersModule } from './offers/offers.module';
     AdminModule,
     WaitlistModule,
     OffersModule,
+    JobsModule,
     // Các thành viên đăng ký Module nghiệp vụ của mình tại đây:
     // - TV1: AuthModule, UsersModule, AdminModule
     // - TV2: EventsModule
