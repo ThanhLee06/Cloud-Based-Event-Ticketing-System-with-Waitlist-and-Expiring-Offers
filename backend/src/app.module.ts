@@ -4,6 +4,7 @@ import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './health/health.module';
 import { RequestIdMiddleware } from './common/request-id.middleware';
+import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { AdminModule } from './admin/admin.module';
@@ -19,6 +20,7 @@ import { JobsModule } from './jobs/jobs.module';
     }),
     PrismaModule,
     HealthModule,
+    MailModule,
     AuthModule,
     UsersModule,
     AdminModule,

@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 const normalizeEmail = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().toLowerCase() : value;
@@ -37,4 +37,22 @@ export class LoginDto {
   @MinLength(1, { message: 'Vui lòng nhập mật khẩu.' })
   @MaxLength(72)
   password: string;
+}
+
+/** POST /api/auth/verify-email */
+export class VerifyEmailDto {
+  @Transform(normalizeEmail)
+  @IsEmail({}, { message: 'Email không hợp lệ.' })
+  email: string;
+
+  @Transform(trim)
+  @Matches(/^\d{6}$/, { message: 'Mã xác thực gồm đúng 6 chữ số.' })
+  code: string;
+}
+
+/** POST /api/auth/resend-verification */
+export class ResendVerificationDto {
+  @Transform(normalizeEmail)
+  @IsEmail({}, { message: 'Email không hợp lệ.' })
+  email: string;
 }

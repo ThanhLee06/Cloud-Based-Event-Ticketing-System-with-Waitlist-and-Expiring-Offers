@@ -40,18 +40,21 @@ enum UserStatus {
 }
 
 model User {
-  id           String     @id @default(uuid()) @db.Uuid
-  name         String     @db.VarChar(120)
-  email        String     @unique @db.VarChar(255)
-  passwordHash String     @map("password_hash") @db.VarChar(255)
-  role         UserRole   @default(CUSTOMER)
-  status       UserStatus @default(ACTIVE)
-  avatar       String?    @db.VarChar(500)
-  phone        String?    @db.VarChar(20)
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id              String     @id @default(uuid()) @db.Uuid
+  name            String     @db.VarChar(120)
+  email           String     @unique @db.VarChar(255)
+  passwordHash    String     @map("password_hash") @db.VarChar(255)
+  role            UserRole   @default(CUSTOMER)
+  status          UserStatus @default(ACTIVE)
+  avatar          String?    @db.VarChar(500)
+  phone           String?    @db.VarChar(20)
+  /// Thời điểm xác thực email bằng OTP. null = chưa xác thực → chưa được đăng nhập.
+  emailVerifiedAt DateTime?  @map("email_verified_at") @db.Timestamptz(3)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   auditLogs          AuditLog[]
+  emailVerifications EmailVerification[]
   organizedEvents    Event[]
   reservations       Reservation[]
   idempotencyRecords IdempotencyRecord[]
@@ -79,6 +82,21 @@ model AuditLog {
   @@index([actorId])
   @@index([targetType, targetId])
   @@map("audit_logs")
+}
+
+/// Mã OTP xác thực email. Chỉ lưu hash của mã, mã hết hạn sau 10 phút, tối đa 5 lần nhập sai.
+model EmailVerification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  codeHash  String   @map("code_hash") @db.VarChar(128)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("email_verifications")
 }
 
 // ===================== TV2 · ST-008: Sự kiện & Ràng buộc sức chứa =====================

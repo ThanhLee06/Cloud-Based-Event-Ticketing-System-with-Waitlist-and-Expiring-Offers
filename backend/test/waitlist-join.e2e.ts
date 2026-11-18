@@ -212,7 +212,7 @@ async function main(): Promise<void> {
     const password = 'TestPassword@123';
     const passwordHash = await bcrypt.hash(password, 6);
     const organizer = await prisma.user.create({
-      data: { name: 'Organizer', email: 'org@test.local', passwordHash, role: 'ORGANIZER' },
+      data: { name: 'Organizer', email: 'org@test.local', passwordHash, role: 'ORGANIZER', emailVerifiedAt: new Date() },
     });
     await prisma.user.createMany({
       data: Array.from({ length: 75 }, (_, i) => ({
@@ -220,6 +220,8 @@ async function main(): Promise<void> {
         email: `student${String(i + 1).padStart(3, '0')}@test.local`,
         passwordHash,
         role: 'CUSTOMER' as const,
+        // Từ khi có OTP (ST-002), tài khoản chưa xác thực email không đăng nhập được.
+        emailVerifiedAt: new Date(),
       })),
     });
     const users = await prisma.user.findMany({ where: { role: 'CUSTOMER' }, orderBy: { email: 'asc' } });

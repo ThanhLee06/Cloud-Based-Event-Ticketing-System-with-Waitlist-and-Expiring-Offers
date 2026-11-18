@@ -376,3 +376,9 @@ textarea:focus-visible {
   background-color: var(--danger-bg);
   color: var(--danger-text);
 }
+
+/* PasswordInput: ẩn nút hiện mật khẩu có sẵn của Edge/IE để không bị 2 biểu tượng con mắt */
+.ef-password-input::-ms-reveal,
+.ef-password-input::-ms-clear {
+  display: none;
+}

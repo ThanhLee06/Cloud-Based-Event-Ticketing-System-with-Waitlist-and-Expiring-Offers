@@ -25,6 +25,7 @@ export interface PublicUser {
   status: UserStatus;
   avatar: string | null;
   phone: string | null;
+  emailVerifiedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -38,6 +39,7 @@ export function toPublicUser(user: User): PublicUser {
     status: user.status,
     avatar: user.avatar,
     phone: user.phone,
+    emailVerifiedAt: user.emailVerifiedAt,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
@@ -52,6 +54,7 @@ export const PUBLIC_USER_SELECT = {
   status: true,
   avatar: true,
   phone: true,
+  emailVerifiedAt: true,
   createdAt: true,
   updatedAt: true,
 } as const;

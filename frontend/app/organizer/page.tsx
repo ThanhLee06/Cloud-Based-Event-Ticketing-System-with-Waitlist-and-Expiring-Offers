@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useMockStore } from '@lib/mock/store';
+import { useAuth, ROLE_LABELS } from '@lib/auth/AuthProvider';
+import { useRouter } from 'next/navigation';
 import { formatVND, formatDateVN } from '@lib/utils/format';
 import {
   Calendar,
@@ -21,6 +23,8 @@ import {
 const OrganizerPage: React.FC = () => {
   const { state, currentUser, getAvailableTickets, promoteNextWaitlist, createEvent, isHydrated } =
     useMockStore();
+  const { user: authUser, logout } = useAuth();
+  const router = useRouter();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
@@ -70,17 +74,37 @@ const OrganizerPage: React.FC = () => {
           Khu vực dành cho Ban tổ chức
         </h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem', marginBottom: 28 }}>
-          Tài khoản hiện tại của bạn (<strong>{currentUser.name}</strong>) là tài khoản{' '}
-          <em>Người mua vé</em> và không có quyền truy cập kênh quản lý sự kiện.
+          {authUser ? (
+            <>
+              Tài khoản hiện tại của bạn (<strong>{authUser.name}</strong>) là{' '}
+              <em>{ROLE_LABELS[authUser.role]}</em> và không có quyền truy cập kênh quản lý sự kiện.
+            </>
+          ) : (
+            <>Vui lòng đăng nhập bằng tài khoản Ban tổ chức để quản lý sự kiện.</>
+          )}
         </p>
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
           <Link href='/' className='ef-btn ef-btn-primary'>
             <ArrowLeft size={16} />
             <span>Quay lại Khám phá</span>
           </Link>
-          <Link href='/login?next=/organizer' className='ef-btn ef-btn-secondary'>
-            Đăng nhập bằng tài khoản Ban tổ chức
-          </Link>
+          {authUser ? (
+            // Phải đăng xuất trước, nếu không /login sẽ thấy đang đăng nhập (tránh kẹt vòng lặp).
+            <button
+              type='button'
+              className='ef-btn ef-btn-secondary'
+              onClick={() => {
+                logout();
+                router.push('/login?next=/organizer');
+              }}
+            >
+              Đăng xuất & đăng nhập tài khoản Ban tổ chức
+            </button>
+          ) : (
+            <Link href='/login?next=/organizer' className='ef-btn ef-btn-secondary'>
+              Đăng nhập bằng tài khoản Ban tổ chức
+            </Link>
+          )}
         </div>
       </div>
     );
