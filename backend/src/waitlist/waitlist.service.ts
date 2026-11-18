@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpException,
   Injectable,
   InternalServerErrorException,
@@ -11,7 +12,7 @@ import {
 import { Prisma, ReservationStatus, WaitlistStatus } from '@prisma/client';
 import { DEFAULT_TX_OPTIONS, isTransientPgConflict, runWithPgRetry } from '../common/pg-tx.util';
 import { PrismaService } from '../prisma/prisma.service';
-import type { JoinWaitlistResponse, MyWaitlistItemResponse } from './dto/join-waitlist.dto';
+import type { JoinWaitlistResponse, LeaveWaitlistResponse, MyWaitlistItemResponse } from './dto/join-waitlist.dto';
 
 interface LockedEventRow {
   id: string;
@@ -97,6 +98,55 @@ export class WaitlistService {
       },
       pendingOffer: r.offerId ? { id: r.offerId, status: r.offerStatus!, expiresAt: r.offerExpiresAt! } : null,
     }));
+  }
+
+  async leaveWaitlist(userId: string, entryId: string): Promise<LeaveWaitlistResponse> {
+    const preliminary = await this.prisma.waitlistEntry.findUnique({
+      where: { id: entryId },
+      select: { id: true, userId: true, eventId: true },
+    });
+    if (!preliminary) throw new NotFoundException('Không tìm thấy lượt đăng ký hàng chờ.');
+    if (preliminary.userId !== userId) {
+      throw new ForbiddenException('Bạn không có quyền hủy lượt hàng chờ của người khác.');
+    }
+    return runWithPgRetry(
+      () =>
+        this.prisma.$transaction(async (tx) => {
+          // Khóa Event trước để tránh race với ST-026 promoteNextWaitlist.
+          await tx.$queryRaw`SELECT "id" FROM "events" WHERE "id" = CAST(${preliminary.eventId} AS uuid) FOR UPDATE`;
+          const entry = await tx.waitlistEntry.findUnique({
+            where: { id: entryId },
+            select: { id: true, userId: true, status: true },
+          });
+          if (!entry) throw new NotFoundException('Không tìm thấy lượt đăng ký hàng chờ.');
+          if (entry.userId !== userId) {
+            throw new ForbiddenException('Bạn không có quyền hủy lượt hàng chờ của người khác.');
+          }
+          this.assertCancellableStatus(entry.status);
+          const updated = await tx.waitlistEntry.updateMany({
+            where: { id: entryId, userId, status: WaitlistStatus.WAITING },
+            data: { status: WaitlistStatus.CANCELLED },
+          });
+          if (updated.count === 0) {
+            const latest = await tx.waitlistEntry.findUnique({ where: { id: entryId }, select: { status: true } });
+            if (!latest) throw new NotFoundException('Không tìm thấy lượt đăng ký hàng chờ.');
+            this.assertCancellableStatus(latest.status);
+            throw new ConflictException('Lượt hàng chờ đã thay đổi trạng thái, không thể hủy.');
+          }
+          return { id: entry.id, status: WaitlistStatus.CANCELLED };
+        }, WAITLIST_TX_OPTIONS),
+      2,
+      (err) => this.mapError(err, preliminary.eventId)
+    );
+  }
+
+  private assertCancellableStatus(status: WaitlistStatus): void {
+    if (status === WaitlistStatus.OFFERED) {
+      throw new ConflictException('Lượt hàng chờ đã chuyển thành Offer. Vui lòng dùng API từ chối Offer.');
+    }
+    if (status !== WaitlistStatus.WAITING) {
+      throw new ConflictException('Lượt hàng chờ đã kết thúc, không thể rời hàng chờ.');
+    }
   }
 
   private async runJoinTransaction(userId: string, eventId: string): Promise<JoinWaitlistResponse> {

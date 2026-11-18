@@ -44,3 +44,8 @@ export interface MyWaitlistItemResponse {
   event: WaitlistEventSummary;
   pendingOffer: WaitlistPendingOfferSummary | null;
 }
+
+export interface LeaveWaitlistResponse {
+  id: string;
+  status: WaitlistStatus;
+}
