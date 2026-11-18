@@ -9,10 +9,15 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { Prisma, ReservationStatus, WaitlistStatus } from '@prisma/client';
+import { OfferStatus, Prisma, ReservationSource, ReservationStatus, WaitlistStatus } from '@prisma/client';
 import { DEFAULT_TX_OPTIONS, isTransientPgConflict, runWithPgRetry } from '../common/pg-tx.util';
 import { PrismaService } from '../prisma/prisma.service';
-import type { JoinWaitlistResponse, LeaveWaitlistResponse, MyWaitlistItemResponse } from './dto/join-waitlist.dto';
+import type {
+  JoinWaitlistResponse,
+  LeaveWaitlistResponse,
+  MyWaitlistItemResponse,
+  PromoteResult,
+} from './dto/join-waitlist.dto';
 
 interface LockedEventRow {
   id: string;
@@ -138,6 +143,81 @@ export class WaitlistService {
       2,
       (err) => this.mapError(err, preliminary.eventId)
     );
+  }
+
+  async promoteNextWaitlist(eventId: string, externalTx?: Prisma.TransactionClient): Promise<PromoteResult> {
+    if (externalTx) return this.runPromoteTransaction(externalTx, eventId);
+    return runWithPgRetry(
+      () => this.prisma.$transaction((tx) => this.runPromoteTransaction(tx, eventId), WAITLIST_TX_OPTIONS),
+      2,
+      (err) => this.mapError(err, eventId)
+    );
+  }
+
+  private async runPromoteTransaction(tx: Prisma.TransactionClient, eventId: string): Promise<PromoteResult> {
+    const [event] = await tx.$queryRaw<LockedEventRow[]>`
+      SELECT "id"::text AS "id", "capacity", "reserved_count" AS "reservedCount",
+             "sold_count" AS "soldCount", "next_waitlist_seq" AS "nextWaitlistSeq", "price_vnd" AS "priceVnd"
+      FROM "events" WHERE "id" = CAST(${eventId} AS uuid) FOR UPDATE
+    `;
+    if (!event) return { promoted: false, reason: 'EVENT_NOT_FOUND' };
+    if (event.soldCount + event.reservedCount >= event.capacity) return { promoted: false, reason: 'NO_CAPACITY' };
+    const [candidate] = await tx.$queryRaw<Array<{ id: string; userId: string; sequenceNo: number }>>`
+      SELECT "id"::text AS "id", "user_id"::text AS "userId", "sequence_no" AS "sequenceNo"
+      FROM "waitlist_entries"
+      WHERE "event_id" = CAST(${eventId} AS uuid) AND "status" = 'WAITING'
+      ORDER BY "sequence_no" ASC LIMIT 1 FOR UPDATE
+    `;
+    if (!candidate) return { promoted: false, reason: 'NO_WAITING_ENTRIES' };
+    const hasActiveRes = await tx.reservation.findFirst({
+      where: { eventId, userId: candidate.userId, status: { in: [ReservationStatus.HOLD, ReservationStatus.CONFIRMED] } },
+      select: { id: true, status: true },
+    });
+    if (hasActiveRes) {
+      this.logger.error(`Xung đột bất biến FIFO: ứng viên ${candidate.id} đã có reservation ${hasActiveRes.status}.`);
+      throw new ConflictException(
+        'Người đứng đầu hàng chờ FIFO đã có đơn giữ chỗ hoặc vé. Hủy giao dịch để bảo toàn dữ liệu.'
+      );
+    }
+    const updated = await tx.waitlistEntry.updateMany({
+      where: { id: candidate.id, status: WaitlistStatus.WAITING },
+      data: { status: WaitlistStatus.OFFERED },
+    });
+    if (updated.count === 0) {
+      throw new ConflictException('Lượt hàng chờ đã thay đổi trạng thái trong quá trình xử lý.');
+    }
+    await tx.event.update({ where: { id: eventId }, data: { reservedCount: { increment: 1 } } });
+    const expiresAt = new Date(Date.now() + 5 * 60_000);
+    const reservation = await tx.reservation.create({
+      data: {
+        eventId,
+        userId: candidate.userId,
+        source: ReservationSource.WAITLIST_OFFER,
+        status: ReservationStatus.HOLD,
+        priceVnd: event.priceVnd,
+        expiresAt,
+      },
+    });
+    const offer = await tx.offer.create({
+      data: {
+        reservationId: reservation.id,
+        waitlistEntryId: candidate.id,
+        eventId,
+        userId: candidate.userId,
+        status: OfferStatus.PENDING,
+        expiresAt,
+      },
+    });
+    return {
+      promoted: true,
+      offerId: offer.id,
+      reservationId: reservation.id,
+      waitlistEntryId: candidate.id,
+      userId: candidate.userId,
+      eventId,
+      sequenceNo: candidate.sequenceNo,
+      expiresAt,
+    };
   }
 
   private assertCancellableStatus(status: WaitlistStatus): void {
