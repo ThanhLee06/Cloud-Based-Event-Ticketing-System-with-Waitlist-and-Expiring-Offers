@@ -214,6 +214,9 @@ interface NestErrorBody {
   statusCode?: number;
   message?: string | string[];
   error?: string;
+  /** Mã lỗi nghiệp vụ, vd. EMAIL_NOT_VERIFIED, OTP_INVALID, OTP_RESEND_COOLDOWN. */
+  code?: string;
+  [key: string]: unknown;
 }
 
 /** Lấy thông báo lỗi tiếng Việt từ response NestJS để hiển thị lên UI. */
@@ -232,3 +235,14 @@ export const getApiErrorMessage = (
 
 export const getApiErrorStatus = (error: unknown): number | undefined =>
   axios.isAxiosError(error) ? error.response?.status : undefined;
+
+/** Mã lỗi nghiệp vụ backend trả về (vd. 'EMAIL_NOT_VERIFIED'), nếu có. */
+export const getApiErrorCode = (error: unknown): string | undefined => {
+  if (!axios.isAxiosError<NestErrorBody>(error)) return undefined;
+  const code = error.response?.data?.code;
+  return typeof code === 'string' ? code : undefined;
+};
+
+/** Toàn bộ body lỗi (để đọc thêm trường như retryAfterSec, remainingAttempts). */
+export const getApiErrorData = (error: unknown): NestErrorBody | undefined =>
+  axios.isAxiosError<NestErrorBody>(error) ? error.response?.data : undefined;
