@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import useClickOutside from '@hooks/useClickOutside';
 import { useRouter } from 'next/navigation';
 import { useMockStore } from '@lib/mock/store';
 import { useAuth, ROLE_LABELS } from '@lib/auth/AuthProvider';
+import { getMyWaitlist, WAITLIST_UPDATED_EVENT } from '@lib/api/waitlist';
 import {
   Ticket,
   ChevronDown,
@@ -49,9 +50,13 @@ const Header: React.FC = () => {
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
   const router = useRouter();
-  const { getUserReservations, getUserOffers, getUserWaitlist, isHydrated } = useMockStore();
+  const { getUserReservations, isHydrated } = useMockStore();
   const { user: authUser, status: authStatus, logout } = useAuth();
   const isOrganizer = authUser?.role === 'ORGANIZER';
+  const [waitlistCounts, setWaitlistCounts] = useState<{ offers: number; waiting: number }>({
+    offers: 0,
+    waiting: 0,
+  });
 
   const handleLogout = () => {
     setUserDropdownOpen(false);
@@ -82,17 +87,53 @@ const Header: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Số đếm (vé/hàng chờ) vẫn lấy từ dữ liệu mẫu cho tới khi TV3/TV4 nối API; chỉ hiện khi đã đăng nhập.
+  const refreshWaitlistCounts = useCallback(async () => {
+    if (authStatus !== 'authenticated' || !authUser) return;
+    try {
+      const items = await getMyWaitlist();
+      setWaitlistCounts({
+        offers: items.filter((w) => w.status === 'OFFERED').length,
+        waiting: items.filter((w) => w.status === 'WAITING').length,
+      });
+    } catch {
+      // Giữ nguyên số hiện tại nếu mất kết nối tạm thời
+    }
+  }, [authStatus, authUser]);
+
+  // Đồng bộ badge hàng chờ và offer thật từ PostgreSQL qua GET /api/waitlist/me.
+  useEffect(() => {
+    if (authStatus !== 'authenticated' || !authUser) return;
+    let active = true;
+    void getMyWaitlist()
+      .then((items) => {
+        if (!active) return;
+        setWaitlistCounts({
+          offers: items.filter((w) => w.status === 'OFFERED').length,
+          waiting: items.filter((w) => w.status === 'WAITING').length,
+        });
+      })
+      .catch(() => {});
+
+    const onUpdated = () => {
+      void refreshWaitlistCounts();
+    };
+    window.addEventListener(WAITLIST_UPDATED_EVENT, onUpdated);
+    return () => {
+      active = false;
+      window.removeEventListener(WAITLIST_UPDATED_EVENT, onUpdated);
+    };
+  }, [authStatus, authUser, pathname, refreshWaitlistCounts]);
+
+  // Vé của tôi vẫn lấy dữ liệu mẫu chờ ST-021; hàng chờ/offer dùng PostgreSQL thật.
   const showCounts = isHydrated && !!authUser;
   const myReservations = showCounts ? getUserReservations() : [];
   const activeTicketsCount = myReservations.filter(
     (r) => r.status === 'CONFIRMED' || r.status === 'HOLD'
   ).length;
 
-  const myOffers = showCounts ? getUserOffers() : [];
-  const pendingOffersCount = myOffers.filter((o) => o.status === 'PENDING').length;
-  const myWaitlist = showCounts ? getUserWaitlist() : [];
-  const waitingCount = myWaitlist.filter((w) => w.status === 'WAITING').length;
+  const isAuthed = authStatus === 'authenticated' && !!authUser;
+  const pendingOffersCount = isAuthed ? waitlistCounts.offers : 0;
+  const waitingCount = isAuthed ? waitlistCounts.waiting : 0;
   const totalWaitlistBadge = pendingOffersCount > 0 ? pendingOffersCount : waitingCount;
 
   return (
