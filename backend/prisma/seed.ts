@@ -8,7 +8,10 @@ const prisma = new PrismaClient();
  * - 100 Student (CUSTOMER): student001@eventflow.vn → student100@eventflow.vn
  * - 2 Organizer: organizer01@eventflow.vn, organizer02@eventflow.vn
  * - 1 Admin: admin@eventflow.vn
- * Mật khẩu chung lấy từ SEED_PASSWORD (mặc định "Eventflow@123"), hash bcrypt 10 rounds.
+ * Mật khẩu: Student + Organizer dùng SEED_PASSWORD (mặc định "Eventflow@123");
+ * Admin dùng SEED_ADMIN_PASSWORD (nếu không đặt thì dùng SEED_PASSWORD). Khi deploy thật,
+ * đặt 2 biến này bằng mật khẩu mạnh (lưu trong AWS Secrets Manager), không dùng mặc định.
+ * Email seed là địa chỉ giả nên được đánh dấu sẵn "đã xác thực" (không cần OTP).
  * Dùng upsert theo email nên chạy lại bao nhiêu lần cũng không lỗi trùng khóa
  * và luôn đưa các tài khoản demo về trạng thái chuẩn (ACTIVE, đúng role, đúng mật khẩu).
  */
@@ -42,21 +45,32 @@ function buildSeedUsers(): SeedUser[] {
 
 async function seedUsers(): Promise<void> {
   const password = process.env.SEED_PASSWORD || 'Eventflow@123';
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD || password;
   // Cùng một mật khẩu → hash một lần rồi dùng lại, seed 103 tài khoản chỉ mất vài trăm ms.
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+  const adminPasswordHash =
+    adminPassword === password ? passwordHash : await bcrypt.hash(adminPassword, SALT_ROUNDS);
+  const verifiedAt = new Date();
   const users = buildSeedUsers();
 
   // Chia lô để không mở quá nhiều kết nối cùng lúc.
   const BATCH = 20;
   for (let i = 0; i < users.length; i += BATCH) {
     await prisma.$transaction(
-      users.slice(i, i + BATCH).map((u) =>
-        prisma.user.upsert({
+      users.slice(i, i + BATCH).map((u) => {
+        const hash = u.role === UserRole.ADMIN ? adminPasswordHash : passwordHash;
+        return prisma.user.upsert({
           where: { email: u.email },
-          update: { name: u.name, role: u.role, status: UserStatus.ACTIVE, passwordHash },
-          create: { ...u, status: UserStatus.ACTIVE, passwordHash },
-        })
-      )
+          update: {
+            name: u.name,
+            role: u.role,
+            status: UserStatus.ACTIVE,
+            passwordHash: hash,
+            emailVerifiedAt: verifiedAt,
+          },
+          create: { ...u, status: UserStatus.ACTIVE, passwordHash: hash, emailVerifiedAt: verifiedAt },
+        });
+      })
     );
   }
 
