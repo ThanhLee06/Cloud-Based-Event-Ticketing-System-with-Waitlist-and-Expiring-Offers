@@ -3,9 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { SafeLogger } from './common/safe-logger';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: new SafeLogger() });
   const configService = app.get(ConfigService);
 
   const port = configService.get<number>('PORT') || 4000;
@@ -36,10 +37,11 @@ async function bootstrap(): Promise<void> {
   );
 
   await app.listen(port);
-  process.stdout.write(`EventFlow Backend API listening on http://localhost:${port}/api\n`);
+  process.stdout.write(`${JSON.stringify({ timestamp: new Date().toISOString(), level: 'log', message: 'Backend API listening', port, path: '/api' })}\n`);
 }
 
 bootstrap().catch((err) => {
-  process.stderr.write(`Backend failed to start: ${String(err)}\n`);
+  const safeLogger = new SafeLogger();
+  safeLogger.error('Backend failed to start', err);
   process.exit(1);
 });

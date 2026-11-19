@@ -29,7 +29,7 @@ export class MailService implements OnModuleInit {
 
   onModuleInit(): void {
     if (this.driver !== 'smtp') {
-      this.logger.log('MAIL_DRIVER=console → email (mã OTP) sẽ được in ra terminal, không gửi thật.');
+      this.logger.log('MAIL_DRIVER=console → email content is omitted from logs; email is not sent.');
       return;
     }
     const port = this.config.get<number>('SMTP_PORT') ?? 587;
@@ -52,9 +52,8 @@ export class MailService implements OnModuleInit {
   /** Gửi email; ném lỗi nếu SMTP thất bại để nơi gọi quyết định cách xử lý. */
   async send(message: MailMessage): Promise<void> {
     if (!this.transporter) {
-      this.logger.log(
-        `\n========== [MAIL:console] ==========\nTo: ${message.to}\nSubject: ${message.subject}\n\n${message.text}\n====================================`
-      );
+      // Never print message bodies: verification emails contain one-time credentials.
+      this.logger.log(`MAIL_DRIVER=console → email queued (recipient redacted, content omitted).`);
       return;
     }
     await this.transporter.sendMail({
