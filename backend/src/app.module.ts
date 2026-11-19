@@ -8,6 +8,7 @@ import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { AdminModule } from './admin/admin.module';
+import { OrganizerModule } from './organizer/organizer.module';
 import { WaitlistModule } from './waitlist/waitlist.module';
 import { OffersModule } from './offers/offers.module';
 import { JobsModule } from './jobs/jobs.module';
@@ -24,6 +25,7 @@ import { JobsModule } from './jobs/jobs.module';
     AuthModule,
     UsersModule,
     AdminModule,
+    OrganizerModule,
     WaitlistModule,
     OffersModule,
     JobsModule,
