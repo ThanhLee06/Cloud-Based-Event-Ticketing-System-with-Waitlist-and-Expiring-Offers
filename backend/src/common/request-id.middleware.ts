@@ -1,4 +1,4 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
+import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
 
@@ -13,12 +13,25 @@ const SAFE_ID = /^[A-Za-z0-9._:-]+$/;
  */
 @Injectable()
 export class RequestIdMiddleware implements NestMiddleware {
+  private readonly logger = new Logger('HttpRequest');
+
   use(req: Request, res: Response, next: NextFunction): void {
     const incoming = req.header('x-request-id');
     const requestId =
       incoming && incoming.length <= MAX_LEN && SAFE_ID.test(incoming) ? incoming : randomUUID();
     req.requestId = requestId;
     res.setHeader('x-request-id', requestId);
+    const startedAt = Date.now();
+    res.once('finish', () => {
+      this.logger.log({
+        event: 'http_request',
+        requestId,
+        method: req.method,
+        path: req.path,
+        statusCode: res.statusCode,
+        durationMs: Date.now() - startedAt,
+      });
+    });
     next();
   }
 }
