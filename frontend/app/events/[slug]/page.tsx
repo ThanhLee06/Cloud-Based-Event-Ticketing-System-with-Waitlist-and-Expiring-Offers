@@ -4,13 +4,11 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth, loginRedirectPath } from '@lib/auth/AuthProvider';
-import {
-  joinWaitlist as apiJoinWaitlist,
-  getMyWaitlist,
-  type MyWaitlistItemResponse,
-} from '@lib/api/waitlist';
-import { getApiErrorMessage } from '@lib/api/client';
+import { joinWaitlist as apiJoinWaitlist } from '@lib/api/waitlist';
+import { getApiErrorMessage, getApiErrorStatus } from '@lib/api/client';
+import { getEventBySlug, type EventDetailResponse } from '@lib/api/events';
 import { useMockStore } from '@lib/mock/store';
+import type { Event } from '@lib/mock/types';
 import { useClientTime } from '@lib/hooks/useClientTime';
 import { formatVND, formatDateVN } from '@lib/utils/format';
 import {
@@ -27,49 +25,93 @@ import {
   ImageOff,
 } from 'lucide-react';
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const REAL_BOOKING_DISABLED_MESSAGE =
+  'Chức năng đặt vé trực tiếp cho sự kiện thật chưa được kết nối API. Vui lòng quay lại sau.';
+
+/** Kết quả gọi GET /api/events/:slug, gắn kèm slug để bỏ qua kết quả cũ khi đổi trang. */
+type EventLoadResult =
+  | { slug: string; state: 'real'; event: EventDetailResponse }
+  | { slug: string; state: 'notFound' }
+  | { slug: string; state: 'error'; message: string };
 
 const EventDetailPage: React.FC = () => {
   const params = useParams();
   const router = useRouter();
   const slug = params?.slug as string;
   const { status, loggedOutByUser } = useAuth();
-  const [realWaitlistEntry, setRealWaitlistEntry] = useState<MyWaitlistItemResponse | null>(null);
 
   const { getEvent, getAvailableTickets, getUserReservations, createReservation, isHydrated } =
     useMockStore();
   const now = useClientTime();
 
+  const [loadResult, setLoadResult] = useState<EventLoadResult | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [loadingAction, setLoadingAction] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [imgError, setImgError] = useState(false);
 
-  const event = getEvent(slug);
-
-  const isRealEvent = Boolean(event && UUID_REGEX.test(event.id));
-
-  // Đồng bộ trạng thái hàng chờ và offer thực tế từ database cho sự kiện thật.
+  // ST-010: Lấy sự kiện thật từ Backend. Chờ AuthProvider xác định phiên xong để
+  // interceptor gửi đúng JWT (hoặc không gửi) và Backend trả userContext tương ứng.
   useEffect(() => {
-    if (status !== 'authenticated' || !isRealEvent || !event) return;
+    if (status === 'loading' || !slug) return;
     let active = true;
-    void getMyWaitlist()
-      .then((items) => {
-        if (!active) return;
-        const found = items.find(
-          (item) =>
-            item.eventId === event.id && (item.status === 'WAITING' || item.status === 'OFFERED')
-        );
-        setRealWaitlistEntry(found ?? null);
+    getEventBySlug(slug)
+      .then((data) => {
+        if (active) setLoadResult({ slug, state: 'real', event: data });
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        if (!active) return;
+        if (getApiErrorStatus(err) === 404) {
+          setLoadResult({ slug, state: 'notFound' });
+        } else {
+          setLoadResult({
+            slug,
+            state: 'error',
+            message: getApiErrorMessage(err, 'Không thể tải thông tin sự kiện. Vui lòng thử lại.'),
+          });
+        }
+      });
     return () => {
       active = false;
     };
-  }, [status, isRealEvent, event]);
+  }, [slug, status, reloadKey]);
 
-  if (!isHydrated) {
+  const currentResult = status !== 'loading' && loadResult?.slug === slug ? loadResult : null;
+
+  if (!currentResult || (currentResult.state === 'notFound' && !isHydrated)) {
     return <div className='ef-loading'>Đang tải thông tin sự kiện...</div>;
   }
+
+  if (currentResult.state === 'error') {
+    return (
+      <div className='ef-container-sm'>
+        <div className='ef-icon-circle ef-icon-circle-danger'>
+          <AlertCircle size={32} />
+        </div>
+        <h1 style={{ fontSize: '1.45rem', fontWeight: 700, marginBottom: 12 }}>
+          Không thể tải sự kiện
+        </h1>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem', marginBottom: 24 }}>
+          {currentResult.message}
+        </p>
+        <button
+          type='button'
+          className='ef-btn ef-btn-primary'
+          onClick={() => {
+            setLoadResult(null);
+            setReloadKey((k) => k + 1);
+          }}
+        >
+          <span>Thử lại</span>
+        </button>
+      </div>
+    );
+  }
+
+  // HTTP 200 → dùng dữ liệu thật; HTTP 404 → thử sự kiện Mock (demo) theo slug.
+  const apiEvent = currentResult.state === 'real' ? currentResult.event : null;
+  const event: Event | undefined = apiEvent ?? getEvent(slug);
+  const isRealEvent = apiEvent !== null;
 
   if (!event) {
     return (
@@ -91,28 +133,43 @@ const EventDetailPage: React.FC = () => {
     );
   }
 
-  const available = getAvailableTickets(event);
+  // Sự kiện thật: số vé do Backend tính. Sự kiện Mock: giữ cách tính của Mock Store.
+  const available = apiEvent ? apiEvent.availableTickets : getAvailableTickets(event);
   const isSoldOut = available <= 0;
 
-  const userReservations = getUserReservations();
-  const activeConfirmed = userReservations.find(
-    (r) => r.eventId === event.id && r.status === 'CONFIRMED'
-  );
-  const activeHold = userReservations.find(
-    (r) => r.eventId === event.id && r.status === 'HOLD' && new Date(r.expiresAt).getTime() > now
-  );
-  // Không trộn hàng chờ/offer thật vào sự kiện dùng dữ liệu mẫu.
+  const isNotExpired = (iso: string) => now === 0 || new Date(iso).getTime() > now;
+
+  // Sự kiện thật: trạng thái người dùng lấy từ userContext (null khi chưa đăng nhập).
+  // Sự kiện Mock: giữ nguyên dữ liệu Mock Store; không trộn hàng chờ/offer thật vào.
+  const userContext = apiEvent?.userContext ?? null;
+  const realReservation = userContext?.activeReservation ?? null;
+  const mockReservations = isRealEvent ? [] : getUserReservations();
+
+  const activeConfirmed = isRealEvent
+    ? realReservation?.status === 'CONFIRMED'
+      ? realReservation
+      : undefined
+    : mockReservations.find((r) => r.eventId === event.id && r.status === 'CONFIRMED');
+  const activeHold = isRealEvent
+    ? realReservation?.status === 'HOLD' && isNotExpired(realReservation.expiresAt)
+      ? realReservation
+      : undefined
+    : mockReservations.find(
+        (r) =>
+          r.eventId === event.id && r.status === 'HOLD' && new Date(r.expiresAt).getTime() > now
+      );
   const activeOffer =
-    isRealEvent &&
-    realWaitlistEntry?.status === 'OFFERED' &&
-    realWaitlistEntry.pendingOffer &&
-    (now === 0 || new Date(realWaitlistEntry.pendingOffer.expiresAt).getTime() > now)
-      ? realWaitlistEntry.pendingOffer
+    userContext?.activeOffer && isNotExpired(userContext.activeOffer.expiresAt)
+      ? userContext.activeOffer
       : null;
-  const activeWaitlist =
-    isRealEvent && realWaitlistEntry?.status === 'WAITING' ? realWaitlistEntry : null;
+  const activeWaitlist = userContext?.activeWaitlist ?? null;
 
   const handleBookTicket = () => {
+    // Sự kiện thật: tuyệt đối không tạo đơn giả trong Mock Store.
+    if (isRealEvent) {
+      setErrorMessage(REAL_BOOKING_DISABLED_MESSAGE);
+      return;
+    }
     setLoadingAction(true);
     setErrorMessage(null);
     setTimeout(() => {
@@ -211,6 +268,40 @@ const EventDetailPage: React.FC = () => {
             <span>{btn}</span>
             <ArrowRight size={16} />
           </Link>
+        </div>
+      );
+    }
+
+    if (!isSoldOut && isRealEvent) {
+      return (
+        <div style={{ width: '100%' }}>
+          <button
+            type='button'
+            disabled
+            className='ef-btn ef-btn-secondary ef-btn-full'
+            style={{
+              padding: isMobileBar ? '11px 18px' : '13px',
+              fontSize: '0.9rem',
+              cursor: 'not-allowed',
+              opacity: 0.85,
+            }}
+            title={REAL_BOOKING_DISABLED_MESSAGE}
+          >
+            <Ticket size={16} />
+            <span>Đặt vé (Chưa mở)</span>
+          </button>
+          {!isMobileBar && (
+            <div
+              style={{
+                fontSize: '0.76rem',
+                color: 'var(--text-muted)',
+                textAlign: 'center',
+                marginTop: 8,
+              }}
+            >
+              {REAL_BOOKING_DISABLED_MESSAGE}
+            </div>
+          )}
         </div>
       );
     }
