@@ -19,6 +19,7 @@ import { OffersModule } from "./offers/offers.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { EventsModule } from "./events/events.module";
 import { MetricsModule } from "./metrics/metrics.module";
+import { ReservationsModule } from "./reservations/reservations.module";
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { MetricsModule } from "./metrics/metrics.module";
     AdminModule,
     OrganizerModule,
     EventsModule,
+    ReservationsModule,
     WaitlistModule,
     OffersModule,
     JobsModule,

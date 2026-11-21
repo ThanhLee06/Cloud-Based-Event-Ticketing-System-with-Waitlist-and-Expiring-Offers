@@ -187,6 +187,7 @@ model IdempotencyRecord {
   requestId      String   @id @map("request_id") @db.VarChar(128)
   userId         String   @map("user_id") @db.Uuid
   endpoint       String   @db.VarChar(120)
+  requestHash    String   @map("request_hash") @db.VarChar(64)
   responseStatus Int      @map("response_status")
   responseBody   Json     @map("response_body") @db.JsonB
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
