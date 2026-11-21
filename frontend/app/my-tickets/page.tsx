@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useMockStore } from '@lib/mock/store';
+import { cancelReservation as apiCancelReservation, getMyReservations, type ApiReservation } from '@lib/api/reservations';
+import { getApiErrorMessage, tokenStorage } from '@lib/api/client';
 import { useClientTime } from '@lib/hooks/useClientTime';
 import { formatVND, formatDateVN } from '@lib/utils/format';
 import Countdown from '@components/Countdown/Countdown';
@@ -24,12 +26,26 @@ type TicketTab = 'CONFIRMED' | 'HOLD' | 'HISTORY';
 const MyTicketsPage: React.FC = () => {
   const { state, getUserReservations, getEvent, cancelReservation, isHydrated } = useMockStore();
   const now = useClientTime();
+  const [apiReservations, setApiReservations] = useState<ApiReservation[] | null>(null);
+  const [apiLoading, setApiLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isHydrated || !tokenStorage.get()) return;
+    let active = true;
+    setApiLoading(true);
+    getMyReservations()
+      .then((items) => { if (active) setApiReservations(items); })
+      .catch((error: unknown) => { if (active) { setApiReservations([]); setApiError(getApiErrorMessage(error, 'Không thể tải danh sách vé từ máy chủ.')); } })
+      .finally(() => { if (active) setApiLoading(false); });
+    return () => { active = false; };
+  }, [isHydrated]);
 
   const [activeTab, setActiveTab] = useState<TicketTab>('CONFIRMED');
   const [selectedTicketToCancel, setSelectedTicketToCancel] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
-  const reservations = isHydrated ? getUserReservations() : [];
+  const reservations = isHydrated ? (apiReservations ?? getUserReservations()) : [];
   const confirmedTickets = reservations.filter((r) => r.status === 'CONFIRMED');
   const holdTickets = reservations.filter(
     (r) => r.status === 'HOLD' && new Date(r.expiresAt).getTime() > now
@@ -54,13 +70,22 @@ const MyTicketsPage: React.FC = () => {
         ? holdTickets
         : historyTickets;
 
-  const handleConfirmCancel = () => {
+  const handleConfirmCancel = async () => {
     if (!selectedTicketToCancel) return;
-    const res = cancelReservation(selectedTicketToCancel);
+    const id = selectedTicketToCancel;
     setSelectedTicketToCancel(null);
-    if (res.success) {
+    try {
+      if (apiReservations) {
+        const updated = await apiCancelReservation(id);
+        setApiReservations((current) => current?.map((item) => item.id === id ? updated : item) ?? []);
+      } else {
+        const result = cancelReservation(id);
+        if (!result.success) throw new Error(result.message || 'Không thể hủy vé.');
+      }
       setFeedbackMessage('Đã hủy vé thành công. Chỗ ngồi đã được trả lại kho sự kiện.');
       setTimeout(() => setFeedbackMessage(null), 4000);
+    } catch (error) {
+      setApiError(getApiErrorMessage(error, error instanceof Error ? error.message : 'Không thể hủy vé.'));
     }
   };
 
@@ -99,6 +124,8 @@ const MyTicketsPage: React.FC = () => {
         </div>
       )}
 
+      {apiLoading && <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>Đang đồng bộ vé với máy chủ...</p>}
+      {apiError && <p className='ef-badge-danger' style={{ padding: 12, marginBottom: 16 }}>{apiError}</p>}
       {/* Tabs */}
       <div
         role='tablist'

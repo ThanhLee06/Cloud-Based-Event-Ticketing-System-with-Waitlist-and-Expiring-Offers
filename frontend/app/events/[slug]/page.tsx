@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth, loginRedirectPath } from '@lib/auth/AuthProvider';
 import { joinWaitlist as apiJoinWaitlist } from '@lib/api/waitlist';
+import { createReservation as apiCreateReservation } from '@lib/api/reservations';
 import { getApiErrorMessage, getApiErrorStatus } from '@lib/api/client';
 import { getEventBySlug, type EventDetailResponse } from '@lib/api/events';
 import { useMockStore } from '@lib/mock/store';
@@ -164,20 +165,27 @@ const EventDetailPage: React.FC = () => {
       : null;
   const activeWaitlist = userContext?.activeWaitlist ?? null;
 
-  const handleBookTicket = () => {
-    // Sự kiện thật: tuyệt đối không tạo đơn giả trong Mock Store.
-    if (isRealEvent) {
-      setErrorMessage(REAL_BOOKING_DISABLED_MESSAGE);
+  const handleBookTicket = async () => {
+    if (status === 'anonymous') {
+      router.push(loginRedirectPath(`/events/${slug}`, loggedOutByUser));
       return;
     }
     setLoadingAction(true);
     setErrorMessage(null);
-    setTimeout(() => {
-      const res = createReservation(event.id);
+    try {
+      if (isRealEvent) {
+        const reservation = await apiCreateReservation(event.id);
+        router.push(`/checkout/${reservation.id}`);
+        return;
+      }
+      const result = createReservation(event.id);
+      if (result.success && result.reservation) router.push(`/checkout/${result.reservation.id}`);
+      else setErrorMessage(result.message || 'Không thể tạo đơn giữ vé. Vui lòng thử lại.');
+    } catch (error) {
+      setErrorMessage(getApiErrorMessage(error, 'Không thể tạo đơn giữ vé. Vui lòng thử lại.'));
+    } finally {
       setLoadingAction(false);
-      if (res.success && res.reservation) router.push(`/checkout/${res.reservation.id}`);
-      else setErrorMessage(res.message || 'Không thể tạo đơn giữ vé. Vui lòng thử lại.');
-    }, 350);
+    }
   };
 
   const handleJoinWaitlist = async () => {

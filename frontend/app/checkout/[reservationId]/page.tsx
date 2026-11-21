@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useMockStore } from '@lib/mock/store';
+import { cancelReservation as apiCancelReservation, confirmReservation as apiConfirmReservation, getReservation as apiGetReservation, type ApiReservation } from '@lib/api/reservations';
+import { getApiErrorMessage } from '@lib/api/client';
 import { useClientTime } from '@lib/hooks/useClientTime';
 import { formatVND, formatDateVN } from '@lib/utils/format';
 import Countdown from '@components/Countdown/Countdown';
@@ -66,6 +68,20 @@ const CheckoutPage: React.FC = () => {
     isHydrated,
   } = useMockStore();
   const now = useClientTime();
+  const [apiReservation, setApiReservation] = useState<ApiReservation | null>(null);
+  const [apiLoading, setApiLoading] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isHydrated || !reservationId) return;
+    if (getReservation(reservationId)) { setApiLoading(false); return; }
+    let active = true;
+    apiGetReservation(reservationId)
+      .then((value) => { if (active) setApiReservation(value); })
+      .catch((error: unknown) => { if (active) setApiError(getApiErrorMessage(error, 'Không thể tải lượt giữ chỗ.')); })
+      .finally(() => { if (active) setApiLoading(false); });
+    return () => { active = false; };
+  }, [isHydrated, reservationId]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -76,8 +92,13 @@ const CheckoutPage: React.FC = () => {
     return <div className='ef-loading'>Đang tải thông tin đơn đặt vé...</div>;
   }
 
-  const reservation = getReservation(reservationId);
-  const event = reservation ? getEvent(reservation.eventId) : undefined;
+  const localReservation = getReservation(reservationId);
+  const reservation = localReservation ?? apiReservation;
+  const event = localReservation ? getEvent(localReservation.eventId) : apiReservation?.event;
+
+  if (apiLoading && !localReservation) {
+    return <div className='ef-loading'>Đang tải thông tin đơn đặt vé...</div>;
+  }
 
   if (!reservation || !event) {
     return (
@@ -85,11 +106,7 @@ const CheckoutPage: React.FC = () => {
         Icon={AlertCircle}
         danger
         title='Không tìm thấy lượt giữ vé'
-        desc={
-          <>
-            Mã giữ chỗ <code>{reservationId}</code> không tồn tại hoặc đã bị hủy.
-          </>
-        }
+        desc={apiError || <>Mã giữ chỗ <code>{reservationId}</code> không tồn tại hoặc đã bị hủy.</>}
         href='/'
         cta='Khám phá sự kiện khác'
       />
@@ -130,23 +147,40 @@ const CheckoutPage: React.FC = () => {
   const isCancelled = reservation.status === 'CANCELLED';
   const isTerminal = isExpired || isAlreadyConfirmed || isCancelled || isSuccess;
 
-  const handleConfirmPayment = () => {
+  const handleConfirmPayment = async () => {
     if (isTerminal) return;
     setIsSubmitting(true);
     setErrorMessage(null);
-
-    setTimeout(() => {
-      const res = confirmReservation(reservation.id);
+    try {
+      if (apiReservation) {
+        const updated = await apiConfirmReservation(reservation.id);
+        setApiReservation(updated);
+        setIsSuccess(true);
+      } else {
+        const result = confirmReservation(reservation.id);
+        if (result.success) setIsSuccess(true);
+        else setErrorMessage(result.message || 'Xác nhận thanh toán thất bại');
+      }
+    } catch (error) {
+      setErrorMessage(getApiErrorMessage(error, 'Xác nhận thanh toán thất bại'));
+    } finally {
       setIsSubmitting(false);
-      if (res.success) setIsSuccess(true);
-      else setErrorMessage(res.message || 'Xác nhận thanh toán thất bại');
-    }, 500);
+    }
   };
 
-  const handleCancelHold = () => {
-    cancelReservation(reservation.id);
-    setShowCancelDialog(false);
-    router.push(`/events/${event.slug}`);
+  const handleCancelHold = async () => {
+    setIsSubmitting(true);
+    try {
+      if (apiReservation) await apiCancelReservation(reservation.id);
+      else cancelReservation(reservation.id);
+      setShowCancelDialog(false);
+      router.push(`/events/${event.slug}`);
+    } catch (error) {
+      setErrorMessage(getApiErrorMessage(error, 'Không thể hủy lượt giữ vé.'));
+      setShowCancelDialog(false);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const priceDisplay = reservation.priceVnd === 0 ? 'Miễn phí' : formatVND(reservation.priceVnd);
