@@ -18,6 +18,7 @@ import { WaitlistModule } from "./waitlist/waitlist.module";
 import { OffersModule } from "./offers/offers.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { EventsModule } from "./events/events.module";
+import { MetricsModule } from "./metrics/metrics.module";
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { EventsModule } from "./events/events.module";
     WaitlistModule,
     OffersModule,
     JobsModule,
+    MetricsModule,
     // Các thành viên đăng ký Module nghiệp vụ của mình tại đây:
     // - TV1: AuthModule, UsersModule, AdminModule
     // - TV2: EventsModule
