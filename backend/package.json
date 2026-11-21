@@ -1,0 +1,57 @@
+{
+  "name": "eventflow-backend",
+  "version": "1.0.0",
+  "description": "EventFlow Cloud Ticketing System — NestJS Backend (Modular Monolith)",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "prebuild": "rimraf dist",
+    "build": "nest build",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test:redaction": "jest --runInBand test/safe-logger.spec.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:seed": "node -r dotenv/config -r ts-node/register prisma/seed.ts"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.11",
+    "@nestjs/config": "^4.0.0",
+    "@nestjs/core": "^11.0.11",
+    "@nestjs/jwt": "^12.0.5",
+    "@nestjs/platform-express": "^11.0.11",
+    "@nestjs/throttler": "^6.8.0",
+    "@prisma/client": "^6.5.0",
+    "bcryptjs": "^3.0.3",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "dotenv": "^16.6.1",
+    "nodemailer": "10.3.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.5",
+    "@nestjs/schematics": "^11.0.2",
+    "@nestjs/testing": "^11.2.11",
+    "@types/express": "^5.0.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.13.10",
+    "@types/nodemailer": "8.0.2",
+    "jest": "^30.5.2",
+    "prisma": "^6.5.0",
+    "rimraf": "^6.0.1",
+    "ts-jest": "^29.4.15",
+    "ts-loader": "^9.5.2",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.8.2"
+  }
+}
