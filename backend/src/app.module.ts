@@ -1,18 +1,24 @@
-import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { validateEnv } from './config/env.validation';
-import { PrismaModule } from './prisma/prisma.module';
-import { HealthModule } from './health/health.module';
-import { RequestIdMiddleware } from './common/request-id.middleware';
-import { MailModule } from './mail/mail.module';
-import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
-import { AdminModule } from './admin/admin.module';
-import { OrganizerModule } from './organizer/organizer.module';
-import { WaitlistModule } from './waitlist/waitlist.module';
-import { OffersModule } from './offers/offers.module';
-import { JobsModule } from './jobs/jobs.module';
-import { MetricsModule } from './metrics/metrics.module';
+import {
+  MiddlewareConsumer,
+  Module,
+  NestModule,
+  RequestMethod,
+} from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
+import { validateEnv } from "./config/env.validation";
+import { PrismaModule } from "./prisma/prisma.module";
+import { HealthModule } from "./health/health.module";
+import { RequestIdMiddleware } from "./common/request-id.middleware";
+import { MailModule } from "./mail/mail.module";
+import { AuthModule } from "./auth/auth.module";
+import { UsersModule } from "./users/users.module";
+import { AdminModule } from "./admin/admin.module";
+import { OrganizerModule } from "./organizer/organizer.module";
+import { WaitlistModule } from "./waitlist/waitlist.module";
+import { OffersModule } from "./offers/offers.module";
+import { JobsModule } from "./jobs/jobs.module";
+import { EventsModule } from "./events/events.module";
+import { MetricsModule } from "./metrics/metrics.module";
 
 @Module({
   imports: [
@@ -27,6 +33,7 @@ import { MetricsModule } from './metrics/metrics.module';
     UsersModule,
     AdminModule,
     OrganizerModule,
+    EventsModule,
     WaitlistModule,
     OffersModule,
     JobsModule,
@@ -41,6 +48,8 @@ import { MetricsModule } from './metrics/metrics.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(RequestIdMiddleware).forRoutes({ path: '{*path}', method: RequestMethod.ALL });
+    consumer
+      .apply(RequestIdMiddleware)
+      .forRoutes({ path: "{*path}", method: RequestMethod.ALL });
   }
 }

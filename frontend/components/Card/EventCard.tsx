@@ -2,18 +2,17 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Event } from '@lib/mock/types';
+import type { EventListItem } from '@lib/api/events';
 import { formatVND, formatEventDateCard } from '@lib/utils/format';
-import { useMockStore } from '@lib/mock/store';
 import { MapPin, Calendar, ImageOff } from 'lucide-react';
 
 interface EventCardProps {
-  event: Event;
+  event: EventListItem;
 }
 
 const EventCard: React.FC<EventCardProps> = ({ event }) => {
-  const { getAvailableTickets } = useMockStore();
-  const available = getAvailableTickets(event);
+  // ST-011: số vé còn lại do Backend tính (capacity - soldCount - reservedCount).
+  const available = event.availableTickets;
   const isSoldOut = available <= 0;
   const isNearlySoldOut = available > 0 && available <= 5;
   const [imgError, setImgError] = useState(false);

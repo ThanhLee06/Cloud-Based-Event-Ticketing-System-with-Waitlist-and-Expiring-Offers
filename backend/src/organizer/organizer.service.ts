@@ -1,5 +1,17 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { AuthUser } from '../auth/auth.types';
+import { DEFAULT_TX_OPTIONS } from '../common/pg-tx.util';
+import { CreateEventDto } from '../events/dto/create-event.dto';
+import { UpdateEventDto } from '../events/dto/update-event.dto';
+import { EventSlugService } from '../events/event-slug.service';
+import { isEventSlugUniqueViolation } from '../events/slug.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
 
@@ -14,6 +26,16 @@ export interface OrganizerStats {
 interface EventAccessRow {
   id: string;
   organizerId: string;
+}
+
+interface LockedEventForUpdateRow {
+  id: string;
+  organizerId: string;
+  capacity: number;
+  soldCount: number;
+  reservedCount: number;
+  startsAt: Date;
+  salesCloseAt: Date;
 }
 
 export interface WaitlistEntryRow {
@@ -40,8 +62,145 @@ export interface AttendeeRow {
 export class OrganizerService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly waitlistService: WaitlistService
+    private readonly waitlistService: WaitlistService,
+    private readonly eventSlugService: EventSlugService
   ) {}
+
+  /**
+   * ST-013 (Bước 2) — Tạo sự kiện thật trong PostgreSQL.
+   * - organizerId luôn lấy từ JWT (user.id).
+   * - Tự sinh slug duy nhất và thử lại khi trùng P2002.
+   * - Khởi tạo bắt buộc: soldCount = 0, reservedCount = 0, nextWaitlistSeq = 1.
+   */
+  async createEvent(user: AuthUser, dto: CreateEventDto) {
+    const startsAt = new Date(dto.startsAt);
+    const salesCloseAt = new Date(dto.salesCloseAt);
+
+    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(salesCloseAt.getTime())) {
+      throw new BadRequestException('Thời gian bắt đầu hoặc thời gian đóng bán vé không hợp lệ.');
+    }
+    if (salesCloseAt.getTime() > startsAt.getTime()) {
+      throw new BadRequestException(
+        'Thời gian đóng bán vé phải trước hoặc bằng thời gian bắt đầu sự kiện.'
+      );
+    }
+
+    try {
+      return await this.eventSlugService.createWithUniqueSlug(dto.title, (slug) =>
+        this.prisma.event.create({
+          data: {
+            slug,
+            title: dto.title,
+            category: dto.category,
+            description: dto.description,
+            venue: dto.venue,
+            address: dto.address,
+            city: dto.city,
+            poster: dto.poster,
+            priceVnd: dto.priceVnd,
+            startsAt,
+            salesCloseAt,
+            capacity: dto.capacity,
+            soldCount: 0,
+            reservedCount: 0,
+            nextWaitlistSeq: 1,
+            organizerId: user.id,
+          },
+        })
+      );
+    } catch (err) {
+      if (isEventSlugUniqueViolation(err)) {
+        throw err;
+      }
+      if (
+        err instanceof Prisma.PrismaClientValidationError ||
+        (err instanceof Prisma.PrismaClientKnownRequestError &&
+          (err.code === 'P2000' || err.code === 'P2003'))
+      ) {
+        throw new BadRequestException('Dữ liệu sự kiện không hợp lệ.');
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * ST-013 (Bước 3) — Cập nhật một phần sự kiện trong PostgreSQL (atomic bằng FOR UPDATE).
+   * - ORGANIZER chỉ được sửa sự kiện của mình; ADMIN được sửa mọi sự kiện.
+   * - Khóa dòng sự kiện trong transaction trước khi kiểm tra capacity >= soldCount + reservedCount
+   *   và salesCloseAt <= startsAt trên dữ liệu sau khi gộp.
+   * - Không bao giờ thay đổi slug, organizerId, soldCount, reservedCount hay nextWaitlistSeq.
+   */
+  async updateEvent(user: AuthUser, eventId: string, dto: UpdateEventDto) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<LockedEventForUpdateRow[]>`
+          SELECT id, organizer_id AS "organizerId",
+                 capacity, sold_count AS "soldCount", reserved_count AS "reservedCount",
+                 starts_at AS "startsAt", sales_close_at AS "salesCloseAt"
+          FROM events
+          WHERE id = ${eventId}::uuid
+          FOR UPDATE
+        `;
+        const existing = rows[0];
+        if (!existing) {
+          throw new NotFoundException('Không tìm thấy sự kiện.');
+        }
+        if (user.role !== 'ADMIN' && existing.organizerId !== user.id) {
+          throw new ForbiddenException('Bạn không có quyền quản lý sự kiện này.');
+        }
+
+        if (dto.capacity !== undefined) {
+          const minCapacity = existing.soldCount + existing.reservedCount;
+          if (dto.capacity < minCapacity) {
+            throw new BadRequestException(
+              `Sức chứa mới (${dto.capacity}) không được nhỏ hơn số vé đã bán và đang giữ chỗ (${minCapacity}).`
+            );
+          }
+        }
+
+        const nextStartsAt =
+          dto.startsAt !== undefined ? new Date(dto.startsAt) : existing.startsAt;
+        const nextSalesCloseAt =
+          dto.salesCloseAt !== undefined ? new Date(dto.salesCloseAt) : existing.salesCloseAt;
+
+        if (Number.isNaN(nextStartsAt.getTime()) || Number.isNaN(nextSalesCloseAt.getTime())) {
+          throw new BadRequestException('Thời gian bắt đầu hoặc thời gian đóng bán vé không hợp lệ.');
+        }
+        if (nextSalesCloseAt.getTime() > nextStartsAt.getTime()) {
+          throw new BadRequestException(
+            'Thời gian đóng bán vé phải trước hoặc bằng thời gian bắt đầu sự kiện.'
+          );
+        }
+
+        const data: Prisma.EventUpdateInput = {};
+        if (dto.title !== undefined) data.title = dto.title;
+        if (dto.description !== undefined) data.description = dto.description;
+        if (dto.category !== undefined) data.category = dto.category;
+        if (dto.venue !== undefined) data.venue = dto.venue;
+        if (dto.address !== undefined) data.address = dto.address;
+        if (dto.city !== undefined) data.city = dto.city;
+        if (dto.poster !== undefined) data.poster = dto.poster;
+        if (dto.priceVnd !== undefined) data.priceVnd = dto.priceVnd;
+        if (dto.capacity !== undefined) data.capacity = dto.capacity;
+        if (dto.startsAt !== undefined) data.startsAt = nextStartsAt;
+        if (dto.salesCloseAt !== undefined) data.salesCloseAt = nextSalesCloseAt;
+
+        return tx.event.update({
+          where: { id: eventId },
+          data,
+        });
+      }, DEFAULT_TX_OPTIONS);
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientValidationError ||
+        (err instanceof Prisma.PrismaClientKnownRequestError &&
+          (err.code === 'P2000' || err.code === 'P2003'))
+      ) {
+        throw new BadRequestException('Dữ liệu cập nhật sự kiện không hợp lệ.');
+      }
+      throw err;
+    }
+  }
 
   private async assertEventAccess(user: AuthUser, eventId: string): Promise<EventAccessRow> {
     const rows = await this.prisma.$queryRaw<EventAccessRow[]>`

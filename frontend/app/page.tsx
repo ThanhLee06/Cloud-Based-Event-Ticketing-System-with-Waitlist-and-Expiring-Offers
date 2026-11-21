@@ -3,16 +3,56 @@
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { useMockStore } from '@lib/mock/store';
 import EventCard from '@components/Card/EventCard';
+import { getEvents, type EventListItem } from '@lib/api/events';
+import { getApiErrorMessage } from '@lib/api/client';
 import { formatEventDateCard } from '@lib/utils/format';
 import { Search, X, MapPin, Calendar } from 'lucide-react';
+
+/** Backend giới hạn limit tối đa 100. Bước này vẫn lọc phía client trên danh sách đã tải. */
+const HOME_EVENTS_LIMIT = 100;
+
+type EventsLoadState =
+  | { status: 'loading' }
+  | { status: 'success'; events: EventListItem[] }
+  | { status: 'error'; message: string };
 
 const HomePageContent: React.FC = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const pathname = usePathname();
-  const { state, getAvailableTickets } = useMockStore();
+
+  // ST-011: Danh sách sự kiện lấy từ Backend (GET /api/events), không dùng Mock Store.
+  const [loadState, setLoadState] = useState<EventsLoadState>({ status: 'loading' });
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    getEvents({ page: 1, limit: HOME_EVENTS_LIMIT })
+      .then((res) => {
+        if (active) setLoadState({ status: 'success', events: res.data });
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setLoadState({
+          status: 'error',
+          message: getApiErrorMessage(err, 'Không thể tải danh sách sự kiện. Vui lòng thử lại.'),
+        });
+      });
+    return () => {
+      active = false;
+    };
+  }, [reloadKey]);
+
+  const events = useMemo(
+    () => (loadState.status === 'success' ? loadState.events : []),
+    [loadState]
+  );
+
+  const retryLoadEvents = () => {
+    setLoadState({ status: 'loading' });
+    setReloadKey((k) => k + 1);
+  };
 
   // F14: Initialize from URL search parameters
   const initialQ = searchParams?.get('q') || '';
@@ -81,8 +121,8 @@ const HomePageContent: React.FC = () => {
 
   // Spotlights the top featured event
   const featuredEvent = useMemo(() => {
-    return state.events.find((e) => e.featured) || state.events[0];
-  }, [state.events]);
+    return events.find((e) => e.featured) || events[0];
+  }, [events]);
 
   const featuredDateInfo = useMemo(() => {
     if (!featuredEvent) return null;
@@ -91,19 +131,19 @@ const HomePageContent: React.FC = () => {
 
   const cities = useMemo(() => {
     const set = new Set<string>();
-    state.events.forEach((e) => set.add(e.city));
+    events.forEach((e) => set.add(e.city));
     return ['ALL', ...Array.from(set)];
-  }, [state.events]);
+  }, [events]);
 
   const categories = useMemo(() => {
     const set = new Set<string>();
-    state.events.forEach((e) => set.add(e.category));
+    events.forEach((e) => set.add(e.category));
     return ['ALL', ...Array.from(set)];
-  }, [state.events]);
+  }, [events]);
 
   // Filter events according to search query and filters
   const filteredEvents = useMemo(() => {
-    return state.events.filter((event) => {
+    return events.filter((event) => {
       const q = searchQuery.toLowerCase().trim();
       const matchQuery =
         !q ||
@@ -115,7 +155,7 @@ const HomePageContent: React.FC = () => {
       const matchCategory = selectedCategory === 'ALL' || event.category === selectedCategory;
       const matchCity = selectedCity === 'ALL' || event.city === selectedCity;
 
-      const available = getAvailableTickets(event);
+      const available = event.availableTickets;
       const matchAvailability =
         availabilityFilter === 'ALL' ||
         (availabilityFilter === 'AVAILABLE' && available > 0) ||
@@ -123,14 +163,7 @@ const HomePageContent: React.FC = () => {
 
       return matchQuery && matchCategory && matchCity && matchAvailability;
     });
-  }, [
-    state.events,
-    searchQuery,
-    selectedCategory,
-    selectedCity,
-    availabilityFilter,
-    getAvailableTickets,
-  ]);
+  }, [events, searchQuery, selectedCategory, selectedCity, availabilityFilter]);
 
   // Sort upcoming events chronologically by startsAt
   const sortedEvents = useMemo(() => {
@@ -499,11 +532,81 @@ const HomePageContent: React.FC = () => {
           <span
             style={{ fontSize: '0.82rem', color: '#71717a', fontVariantNumeric: 'tabular-nums' }}
           >
-            Hiển thị {sortedEvents.length} sự kiện
+            {loadState.status === 'success' ? `Hiển thị ${sortedEvents.length} sự kiện` : ''}
           </span>
         </div>
 
-        {sortedEvents.length > 0 ? (
+        {loadState.status === 'loading' ? (
+          <div
+            role='status'
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: 12,
+              padding: '60px 20px',
+              textAlign: 'center',
+              border: '1px solid #e4e4e7',
+              color: '#71717a',
+              fontSize: '0.9rem',
+            }}
+          >
+            Đang tải danh sách sự kiện...
+          </div>
+        ) : loadState.status === 'error' ? (
+          <div
+            role='alert'
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: 12,
+              padding: '60px 20px',
+              textAlign: 'center',
+              border: '1px solid #e4e4e7',
+            }}
+          >
+            <div
+              style={{ fontSize: '1.05rem', fontWeight: 600, color: '#18181b', marginBottom: 6 }}
+            >
+              Không thể tải danh sách sự kiện
+            </div>
+            <p style={{ color: '#52525b', fontSize: '0.88rem', margin: '0 0 20px 0' }}>
+              {loadState.message}
+            </p>
+            <button
+              type='button'
+              onClick={retryLoadEvents}
+              style={{
+                padding: '9px 18px',
+                borderRadius: 6,
+                backgroundColor: '#18181b',
+                color: '#ffffff',
+                border: 'none',
+                fontSize: '0.86rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Thử lại
+            </button>
+          </div>
+        ) : events.length === 0 ? (
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: 12,
+              padding: '60px 20px',
+              textAlign: 'center',
+              border: '1px solid #e4e4e7',
+            }}
+          >
+            <div
+              style={{ fontSize: '1.05rem', fontWeight: 600, color: '#18181b', marginBottom: 6 }}
+            >
+              Chưa có sự kiện nào
+            </div>
+            <p style={{ color: '#52525b', fontSize: '0.88rem', margin: 0 }}>
+              Hiện chưa có sự kiện nào được mở bán. Vui lòng quay lại sau.
+            </p>
+          </div>
+        ) : sortedEvents.length > 0 ? (
           <div
             style={{
               display: 'grid',
