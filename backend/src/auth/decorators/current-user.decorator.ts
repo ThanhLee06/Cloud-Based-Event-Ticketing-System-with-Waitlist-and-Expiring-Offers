@@ -11,6 +11,14 @@ export const CurrentUser = createParamDecorator((_data: unknown, ctx: ExecutionC
   return req.authUser satisfies AuthUser;
 });
 
+/** Lấy user hiện tại (nếu đã đăng nhập qua OptionalJwtAuthGuard), trả null nếu là khách vãng lai. */
+export const OptionalCurrentUser = createParamDecorator(
+  (_data: unknown, ctx: ExecutionContext): AuthUser | null => {
+    const req = ctx.switchToHttp().getRequest<Request>();
+    return req.authUser ?? null;
+  },
+);
+
 /** Lấy requestId (do RequestIdMiddleware gắn) để ghi audit log. */
 export const RequestId = createParamDecorator((_data: unknown, ctx: ExecutionContext) => {
   const req = ctx.switchToHttp().getRequest<Request>();
