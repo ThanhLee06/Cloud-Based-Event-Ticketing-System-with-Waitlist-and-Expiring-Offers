@@ -171,7 +171,7 @@ const MyTicketsPage: React.FC = () => {
       {displayedList.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {displayedList.map((res) => {
-            const event = getEvent(res.eventId);
+            const event = ('event' in res && res.event) ? res.event : getEvent(res.eventId);
             if (!event) return null;
 
             const isHold = res.status === 'HOLD' && new Date(res.expiresAt).getTime() > now;
@@ -307,6 +307,32 @@ const MyTicketsPage: React.FC = () => {
                     alignItems: 'stretch',
                   }}
                 >
+                  {isConfirmed && 'receiptContent' in res && res.receiptContent && (
+                    <details
+                      style={{
+                        marginBottom: 8,
+                        padding: '8px 10px',
+                        border: '1px solid var(--border)',
+                        borderRadius: 8,
+                        fontSize: '0.8rem',
+                      }}
+                    >
+                      <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+                        Xem biên lai điện tử
+                      </summary>
+                      <pre
+                        style={{
+                          marginTop: 8,
+                          whiteSpace: 'pre-wrap',
+                          overflowWrap: 'anywhere',
+                          color: 'var(--text-muted)',
+                          fontSize: '0.74rem',
+                        }}
+                      >
+                        {JSON.stringify(res.receiptContent, null, 2)}
+                      </pre>
+                    </details>
+                  )}
                   {isHold ? (
                     <div>
                       <div style={{ marginBottom: 8 }}>

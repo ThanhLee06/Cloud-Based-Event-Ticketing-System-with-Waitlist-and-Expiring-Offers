@@ -316,6 +316,32 @@ const CheckoutPage: React.FC = () => {
           </div>
         )}
 
+        {reservation.status === 'CONFIRMED' && 'receiptContent' in reservation && reservation.receiptContent && (
+          <details
+            style={{
+              marginBottom: 20,
+              padding: 14,
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+            }}
+          >
+            <summary style={{ cursor: 'pointer', fontWeight: 700 }}>
+              Xem biên lai điện tử
+            </summary>
+            <pre
+              style={{
+                marginTop: 12,
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
+                color: 'var(--text-muted)',
+                fontSize: '0.8rem',
+              }}
+            >
+              {JSON.stringify(reservation.receiptContent, null, 2)}
+            </pre>
+          </details>
+        )}
+
         {errorMessage && (
           <div
             className='ef-badge-danger'

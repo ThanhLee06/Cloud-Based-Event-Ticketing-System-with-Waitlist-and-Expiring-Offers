@@ -137,7 +137,9 @@ export class ReservationsService {
     const requestId = `${userId}:${key}`;
     const requestHash = crypto.createHash('sha256').update(JSON.stringify({ endpoint, payload })).digest('hex');
     return runWithPgRetry(() => this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      await tx.$queryRaw`
+  SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))::text AS locked
+`;
       const previous = await tx.idempotencyRecord.findUnique({ where: { requestId } });
       if (previous) {
         if (previous.endpoint !== endpoint || previous.requestHash !== requestHash) {
