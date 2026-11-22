@@ -26,9 +26,6 @@ import {
   ImageOff,
 } from 'lucide-react';
 
-const REAL_BOOKING_DISABLED_MESSAGE =
-  'Chức năng đặt vé trực tiếp cho sự kiện thật chưa được kết nối API. Vui lòng quay lại sau.';
-
 /** Kết quả gọi GET /api/events/:slug, gắn kèm slug để bỏ qua kết quả cũ khi đổi trang. */
 type EventLoadResult =
   | { slug: string; state: 'real'; event: EventDetailResponse }
@@ -276,40 +273,6 @@ const EventDetailPage: React.FC = () => {
             <span>{btn}</span>
             <ArrowRight size={16} />
           </Link>
-        </div>
-      );
-    }
-
-    if (!isSoldOut && isRealEvent) {
-      return (
-        <div style={{ width: '100%' }}>
-          <button
-            type='button'
-            disabled
-            className='ef-btn ef-btn-secondary ef-btn-full'
-            style={{
-              padding: isMobileBar ? '11px 18px' : '13px',
-              fontSize: '0.9rem',
-              cursor: 'not-allowed',
-              opacity: 0.85,
-            }}
-            title={REAL_BOOKING_DISABLED_MESSAGE}
-          >
-            <Ticket size={16} />
-            <span>Đặt vé (Chưa mở)</span>
-          </button>
-          {!isMobileBar && (
-            <div
-              style={{
-                fontSize: '0.76rem',
-                color: 'var(--text-muted)',
-                textAlign: 'center',
-                marginTop: 8,
-              }}
-            >
-              {REAL_BOOKING_DISABLED_MESSAGE}
-            </div>
-          )}
         </div>
       );
     }
