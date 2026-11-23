@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Lock, AlertCircle, ArrowRight, LogOut } from 'lucide-react';
+import { Lock, AlertCircle, ArrowRight, LogOut, UserPlus } from 'lucide-react';
 import { useAuth, homePathForRole, ROLE_LABELS } from '@lib/auth/AuthProvider';
 import { getApiErrorCode, getApiErrorMessage } from '@lib/api/client';
 import PasswordInput from '@components/Form/PasswordInput';
@@ -17,7 +17,7 @@ const readNextPath = (): string | null => {
 
 const LoginPage: React.FC = () => {
   const router = useRouter();
-  const { login, logout, user, status } = useAuth();
+  const { login, logout, user, status, mode, startCognito } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,6 +39,18 @@ const LoginPage: React.FC = () => {
         return;
       }
       setErrorMessage(getApiErrorMessage(err, 'Đăng nhập thất bại. Vui lòng thử lại.'));
+      setIsSubmitting(false);
+    }
+  };
+
+  // ST-036: chạy trên AWS → chuyển sang trang đăng nhập/đăng ký của Amazon Cognito.
+  const goToCognito = async (screen: 'login' | 'signup') => {
+    setErrorMessage(null);
+    setIsSubmitting(true);
+    try {
+      await startCognito(screen, readNextPath());
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Không mở được trang đăng nhập.');
       setIsSubmitting(false);
     }
   };
@@ -105,6 +117,55 @@ const LoginPage: React.FC = () => {
                 <span>Đăng xuất để dùng tài khoản khác</span>
               </button>
             </div>
+          </div>
+        ) : mode === null ? (
+          <p
+            role='status'
+            style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}
+          >
+            Đang tải...
+          </p>
+        ) : mode === 'cognito' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {errorMessage && (
+              <div
+                role='alert'
+                className='ef-badge-danger'
+                style={{ padding: '10px 14px', borderRadius: 6, fontSize: '0.84rem' }}
+              >
+                {errorMessage}
+              </div>
+            )}
+            <button
+              type='button'
+              className='ef-btn ef-btn-primary ef-btn-full'
+              disabled={isSubmitting}
+              onClick={() => void goToCognito('login')}
+            >
+              <span>{isSubmitting ? 'Đang chuyển hướng...' : 'Đăng nhập'}</span>
+              <ArrowRight size={16} />
+            </button>
+            <button
+              type='button'
+              className='ef-btn ef-btn-secondary ef-btn-full'
+              disabled={isSubmitting}
+              onClick={() => void goToCognito('signup')}
+            >
+              <UserPlus size={16} />
+              <span>Tạo tài khoản mới</span>
+            </button>
+            <p
+              style={{
+                fontSize: '0.78rem',
+                color: 'var(--text-muted)',
+                textAlign: 'center',
+                lineHeight: 1.6,
+                marginTop: 6,
+              }}
+            >
+              Bạn sẽ được chuyển sang trang đăng nhập bảo mật của Amazon Cognito. Quên mật khẩu?
+              Chọn &quot;Forgot your password?&quot; trên trang đó.
+            </p>
           </div>
         ) : (
           <>

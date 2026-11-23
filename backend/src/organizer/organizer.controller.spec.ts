@@ -12,7 +12,9 @@ import {
 } from '@nestjs/common';
 import { GUARDS_METADATA, HTTP_CODE_METADATA } from '@nestjs/common/constants';
 import { Reflector } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { AuthTokenService } from '../auth/auth-token.service';
 import { Test } from '@nestjs/testing';
 import { UserRole, UserStatus } from '@prisma/client';
 import type { Request } from 'express';
@@ -74,6 +76,9 @@ describe('ST-013 (Bước 1) - OrganizerController route protection & RBAC', () 
         Reflector,
         JwtAuthGuard,
         RolesGuard,
+        // ST-036: guard xác minh token qua AuthTokenService (AUTH_MODE mặc định = local).
+        AuthTokenService,
+        { provide: ConfigService, useValue: { get: () => undefined } },
         { provide: JwtService, useValue: jwtMock },
         { provide: PrismaService, useValue: prismaMock },
         { provide: OrganizerService, useValue: organizerServiceMock },

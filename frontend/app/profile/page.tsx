@@ -36,7 +36,7 @@ const NoticeBox: React.FC<{ notice: Notice }> = ({ notice }) => {
 /** ST-007: Hồ sơ cá nhân — xem thông tin, sửa tên/SĐT, đổi mật khẩu (API ST-003). */
 const ProfilePage: React.FC = () => {
   const router = useRouter();
-  const { user, status, setUser, loggedOutByUser } = useAuth();
+  const { user, status, setUser, loggedOutByUser, mode } = useAuth();
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -204,57 +204,70 @@ const ProfilePage: React.FC = () => {
           </div>
         </form>
 
-        {/* Đổi mật khẩu */}
-        <form className='ef-card-lg' onSubmit={handleChangePassword}>
-          <h2 style={sectionTitle}>
-            <KeyRound size={18} /> Đổi mật khẩu
-          </h2>
-          <NoticeBox notice={passwordNotice} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div>
-              <label htmlFor='pw-old' className='ef-label'>
-                Mật khẩu hiện tại
-              </label>
-              <PasswordInput
-                id='pw-old'
-                autoComplete='current-password'
-                required
-                value={oldPassword}
-                onChange={(e) => setOldPassword(e.target.value)}
-              />
-            </div>
-            <div>
-              <label htmlFor='pw-new' className='ef-label'>
-                Mật khẩu mới (tối thiểu 6 ký tự)
-              </label>
-              <PasswordInput
-                id='pw-new'
-                autoComplete='new-password'
-                required
-                minLength={6}
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-              />
-            </div>
-            <div>
-              <label htmlFor='pw-confirm' className='ef-label'>
-                Nhập lại mật khẩu mới
-              </label>
-              <PasswordInput
-                id='pw-confirm'
-                autoComplete='new-password'
-                required
-                minLength={6}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
-            </div>
-            <button type='submit' className='ef-btn ef-btn-primary' disabled={savingPassword}>
-              <KeyRound size={16} />
-              <span>{savingPassword ? 'Đang đổi...' : 'Đổi mật khẩu'}</span>
-            </button>
+        {/* Đổi mật khẩu — ST-036: khi chạy với Cognito, mật khẩu do Cognito quản lý */}
+        {mode === 'cognito' ? (
+          <div className='ef-card-lg'>
+            <h2 style={sectionTitle}>
+              <KeyRound size={18} /> Mật khẩu
+            </h2>
+            <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+              Mật khẩu của bạn được quản lý bởi <strong>Amazon Cognito</strong>. Để đổi mật khẩu,
+              hãy đăng xuất rồi chọn <strong>&quot;Forgot your password?&quot;</strong> trên trang
+              đăng nhập; Cognito sẽ gửi mã xác nhận tới email của bạn.
+            </p>
           </div>
-        </form>
+        ) : (
+          <form className='ef-card-lg' onSubmit={handleChangePassword}>
+            <h2 style={sectionTitle}>
+              <KeyRound size={18} /> Đổi mật khẩu
+            </h2>
+            <NoticeBox notice={passwordNotice} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label htmlFor='pw-old' className='ef-label'>
+                  Mật khẩu hiện tại
+                </label>
+                <PasswordInput
+                  id='pw-old'
+                  autoComplete='current-password'
+                  required
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor='pw-new' className='ef-label'>
+                  Mật khẩu mới (tối thiểu 6 ký tự)
+                </label>
+                <PasswordInput
+                  id='pw-new'
+                  autoComplete='new-password'
+                  required
+                  minLength={6}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor='pw-confirm' className='ef-label'>
+                  Nhập lại mật khẩu mới
+                </label>
+                <PasswordInput
+                  id='pw-confirm'
+                  autoComplete='new-password'
+                  required
+                  minLength={6}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+              </div>
+              <button type='submit' className='ef-btn ef-btn-primary' disabled={savingPassword}>
+                <KeyRound size={16} />
+                <span>{savingPassword ? 'Đang đổi...' : 'Đổi mật khẩu'}</span>
+              </button>
+            </div>
+          </form>
+        )}
       </div>
 
       <style jsx>{`

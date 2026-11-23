@@ -10,7 +10,7 @@ import PasswordInput from '@components/Form/PasswordInput';
 
 const RegisterPage: React.FC = () => {
   const router = useRouter();
-  const { register, user, status } = useAuth();
+  const { register, user, status, mode, startCognito } = useAuth();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -27,6 +27,15 @@ const RegisterPage: React.FC = () => {
       router.replace(homePathForRole(user.role));
     }
   }, [status, user, isSubmitting, router]);
+
+  // ST-036: chạy trên AWS → đăng ký trên trang của Amazon Cognito (Cognito tự gửi mã xác thực email).
+  useEffect(() => {
+    if (mode === 'cognito' && status === 'anonymous') {
+      startCognito('signup').catch(() =>
+        setErrorMessage('Không mở được trang đăng ký. Vui lòng thử lại.')
+      );
+    }
+  }, [mode, status, startCognito]);
 
   const passwordsMismatch = confirmPassword.length > 0 && confirmPassword !== password;
 
@@ -67,6 +76,19 @@ const RegisterPage: React.FC = () => {
       setIsSubmitting(false);
     }
   };
+
+  if (mode === 'cognito') {
+    return (
+      <div className='ef-container-sm'>
+        <p role={errorMessage ? 'alert' : 'status'} style={{ fontSize: '0.95rem' }}>
+          {errorMessage ?? 'Đang chuyển sang trang đăng ký của Amazon Cognito...'}
+        </p>
+        <Link href='/login' style={{ fontSize: '0.86rem', textDecoration: 'underline' }}>
+          Quay lại đăng nhập
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: 460, margin: '40px auto 80px auto', padding: '0 20px' }}>

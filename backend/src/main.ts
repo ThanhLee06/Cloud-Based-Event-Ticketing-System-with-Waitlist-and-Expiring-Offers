@@ -12,9 +12,11 @@ async function bootstrap(): Promise<void> {
   const port = configService.get<number>('PORT') || 4000;
   const corsOrigin = configService.get<string>('CORS_ORIGIN') || 'http://localhost:3000';
 
-  // Chạy sau load balancer (AWS) → bật TRUST_PROXY=true để rate-limit đúng IP thật của client.
-  if (configService.get<boolean>('TRUST_PROXY')) {
-    app.set('trust proxy', 1);
+  // ST-036: tin đúng số lớp proxy đứng trước (Load Balancer = 1, CloudFront + Load Balancer = 2)
+  // để req.ip là IP thật của khách → rate-limit đăng nhập tính đúng người.
+  const trustProxyHops = configService.get<number>('TRUST_PROXY') ?? 0;
+  if (trustProxyHops > 0) {
+    app.set('trust proxy', trustProxyHops);
   }
 
   app.setGlobalPrefix('api');
