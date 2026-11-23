@@ -2,7 +2,7 @@ data "aws_caller_identity" "preview" {}
 
 locals {
   aws_ecs               = "arn:aws:ecs:ap-southeast-2:${data.aws_caller_identity.preview.account_id}"
-  github_preview_repo   = "ThanhLee06/Cloud-Based-Event-Ticketing-System-with-Waitlist-and-Expiring-Offers"
+  github_preview_repo   = "ThanhLee06@181952495/Cloud-Based-Event-Ticketing-System-with-Waitlist-and-Expiring-Offers@1457934518"
   github_preview_branch = "codex/eventflow-preview-deploy"
 }
 
