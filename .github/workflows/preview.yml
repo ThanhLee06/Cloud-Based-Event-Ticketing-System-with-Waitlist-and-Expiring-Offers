@@ -1,0 +1,31 @@
+name: Deploy EventFlow preview
+
+on:
+  push:
+    branches: [codex/eventflow-preview-deploy]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: eventflow-preview
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      AWS_REGION: ap-southeast-2
+      PREVIEW_URL: https://ev-bdd71c0a93674b039bc3d735c844024f.ecs.ap-southeast-2.on.aws
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ap-southeast-2
+          role-to-assume: arn:aws:iam::937836105619:role/eventflow-preview-github-deploy
+      - name: Build and release both applications
+        run: bash infra/web-preview/deploy.sh
