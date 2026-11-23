@@ -57,18 +57,48 @@ aws ecs wait services-stable --cluster "$cluster" --services "$api_service"
 active_revision=$(aws ecs describe-services --cluster "$cluster" --services "$api_service" --query 'services[0].taskDefinition' --output text)
 [[ $active_revision == "$api_revision" ]]
 
-web_rollout=$(aws ecs update-express-gateway-service --service-arn "$service_arn" --primary-container "image=$web_image,containerPort=3000" --query 'service.currentDeployment' --output text)
-[[ $web_rollout == arn:aws:ecs:*:service-deployment/* ]]
-web_status=''
-for _ in {1..80}; do
-  web_status=$(aws ecs describe-service-deployments --service-deployment-arns "$web_rollout" --query 'serviceDeployments[0].status' --output text)
-  case "$web_status" in
-    SUCCESSFUL) break ;;
-    STOPPED|STOP_REQUESTED|ROLLBACK_*) echo "Web deployment: $web_status" >&2; exit 1 ;;
-  esac
-  sleep 10
-done
-[[ $web_status == SUCCESSFUL ]]
+latest_web_rollout() {
+  aws ecs list-service-deployments --cluster "$cluster" --service "$web_service" \
+    --query 'sort_by(serviceDeployments, &createdAt)[-1].serviceDeploymentArn' --output text
+}
+
+wait_for_web_rollout() {
+  local deployment=$1 status=''
+  for _ in {1..80}; do
+    status=$(aws ecs describe-service-deployments --service-deployment-arns "$deployment" --query 'serviceDeployments[0].status' --output text)
+    case "$status" in
+      SUCCESSFUL) return 0 ;;
+      STOPPED|STOP_REQUESTED|ROLLBACK_*) break ;;
+    esac
+    sleep 10
+  done
+  echo "Web deployment $deployment ended in $status." >&2
+  return 1
+}
+
+previous_web_rollout=$(latest_web_rollout)
+if [[ $previous_web_rollout == arn:aws:ecs:*:service-deployment/* ]]; then
+  previous_status=$(aws ecs describe-service-deployments --service-deployment-arns "$previous_web_rollout" --query 'serviceDeployments[0].status' --output text)
+  if [[ $previous_status == IN_PROGRESS || $previous_status == PENDING ]]; then
+    wait_for_web_rollout "$previous_web_rollout"
+  fi
+fi
+running_web_image=$(aws ecs describe-express-gateway-service --service-arn "$service_arn" --query 'service.activeConfigurations[0].primaryContainer.image' --output text)
+if [[ $running_web_image != "$web_image" ]]; then
+  aws ecs update-express-gateway-service --service-arn "$service_arn" --primary-container "image=$web_image,containerPort=3000" >/dev/null
+  web_rollout=''
+  for _ in {1..12}; do
+    web_rollout=$(latest_web_rollout)
+    if [[ $web_rollout == arn:aws:ecs:*:service-deployment/* && $web_rollout != "$previous_web_rollout" ]]; then break; fi
+    sleep 5
+  done
+  if [[ $web_rollout != arn:aws:ecs:*:service-deployment/* || $web_rollout == "$previous_web_rollout" ]]; then
+    echo 'Could not identify the new web deployment.' >&2
+    exit 1
+  fi
+  echo "Web deployment: $web_rollout"
+  wait_for_web_rollout "$web_rollout"
+fi
 
 curl_args=(--silent --show-error --retry 5 --retry-all-errors --max-time 15)
 curl "${curl_args[@]}" --fail "$PREVIEW_URL/api/health" | jq -e '.status == "ok" and .db == "up"'
