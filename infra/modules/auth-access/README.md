@@ -130,3 +130,26 @@ Script chạy lại nhiều lần được (bỏ qua email đã có).
 3. Secrets Manager: 2 secret (không mở phần giá trị).
 4. IAM: policy của execution role (chỉ `secretsmanager:GetSecretValue` đúng ARN) và task role (chỉ prefix S3).
 5. Đăng nhập `organizer01@...` qua Hosted UI → vào `/organizer`; một tài khoản mới tự đăng ký → vai trò Người mua.
+
+## 8. ST-037: Kiểm tra truy cập trực tiếp
+
+**API (chạy được ngay, cả local lẫn AWS):** gọi thẳng các đường dẫn bằng 4 tài khoản thử (Sinh viên, BTC A, BTC B, Admin) và xuất bảng minh chứng.
+
+```bash
+cd backend
+pnpm test:access                                          # API local http://127.0.0.1:4000
+node scripts/st037-access-check.mjs --base https://<preview-url> --out ../ST-037-ket-qua-api.md
+```
+
+Trên AWS (`AUTH_MODE=cognito`) script đăng nhập bằng Cognito `USER_PASSWORD_AUTH`, nên cần tạm đặt
+`enable_password_auth_flow = true` rồi tắt lại sau khi chụp minh chứng.
+
+**S3 + RDS (sau khi có ST-048 và RDS):** chỉ đọc cấu hình, không thay đổi gì.
+
+```bash
+export DB_INSTANCE_ID=<tên RDS> UPLOADS_BUCKET=<bucket ST-048> SAMPLE_OBJECT_KEY=uploads/<một tệp có thật>
+bash infra/modules/auth-access/scripts/check-private-access.sh | tee ST-037-ket-qua-s3-rds.md
+```
+
+Kiểm tra: RDS `PubliclyAccessible=false`; cổng 5432 chỉ nhận Security Group (không có dải IP như `0.0.0.0/0`);
+kết nối TCP từ ngoài vào DB thất bại; bucket bật đủ 4 mục Block Public Access; mở link tệp S3 không chữ ký trả 403.
