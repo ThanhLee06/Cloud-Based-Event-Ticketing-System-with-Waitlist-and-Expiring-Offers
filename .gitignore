@@ -9,7 +9,6 @@
 /docs/
 /scripts/
 /frontend/yarn.lock
-/backend/pnpm-lock.yaml
 package-lock.json
 /frontend/screenshots/
 __pycache__/
