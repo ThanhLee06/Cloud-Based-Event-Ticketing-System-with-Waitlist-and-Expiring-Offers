@@ -3,7 +3,7 @@ data "aws_caller_identity" "preview" {}
 locals {
   aws_ecs               = "arn:aws:ecs:ap-southeast-2:${data.aws_caller_identity.preview.account_id}"
   github_preview_repo   = "ThanhLee06@181952495/Cloud-Based-Event-Ticketing-System-with-Waitlist-and-Expiring-Offers@1457934518"
-  github_preview_branch = "codex/eventflow-preview-deploy"
+  github_preview_branch = "deploy"
 }
 
 resource "aws_iam_openid_connect_provider" "preview_github" {

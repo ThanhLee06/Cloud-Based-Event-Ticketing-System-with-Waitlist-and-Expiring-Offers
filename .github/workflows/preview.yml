@@ -2,7 +2,8 @@ name: Deploy EventFlow preview
 
 on:
   push:
-    branches: [codex/eventflow-preview-deploy]
+    branches: [deploy]
+  workflow_dispatch:
 
 permissions:
   contents: read

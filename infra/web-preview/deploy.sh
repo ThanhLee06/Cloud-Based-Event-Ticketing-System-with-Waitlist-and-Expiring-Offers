@@ -51,6 +51,16 @@ if ! jq -e 'any(.tasks[0].containers[]; .name == "migrate" and .exitCode == 0)' 
   exit 1
 fi
 
+seed_launch=$(aws ecs run-task --cluster "$cluster" --task-definition "$migration_revision" --launch-type FARGATE --network-configuration "$network" --overrides '{"containerOverrides":[{"name":"migrate","command":["pnpm","run","prisma:seed"]}]}')
+seed_task=$(jq -er 'if .failures == [] then .tasks[0].taskArn else error(.failures|tostring) end' <<<"$seed_launch")
+echo "Seed task: $seed_task"
+aws ecs wait tasks-stopped --cluster "$cluster" --tasks "$seed_task"
+seed_completed=$(aws ecs describe-tasks --cluster "$cluster" --tasks "$seed_task")
+if ! jq -e 'any(.tasks[0].containers[]; .name == "migrate" and .exitCode == 0)' <<<"$seed_completed" >/dev/null; then
+  jq '.tasks[0]|{stoppedReason,containers:[.containers[]|{name,exitCode,reason}]}' <<<"$seed_completed" >&2
+  exit 1
+fi
+
 api_revision=$(register_api_revision api "$api_image")
 aws ecs update-service --cluster "$cluster" --service "$api_service" --task-definition "$api_revision" --desired-count 1 >/dev/null
 aws ecs wait services-stable --cluster "$cluster" --services "$api_service"
