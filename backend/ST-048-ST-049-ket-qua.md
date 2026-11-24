@@ -1,6 +1,6 @@
 # BÁO CÁO NGHIỆM THU KIỂM THỬ TRÊN AWS CLOUDWATCH (ST-048 & ST-049)
 
-> **Môi trường:** AWS Cloud (Region: `ap-southeast-2`, Account: `937836105619`)  
+> **Môi trường:** AWS Cloud (Region: `ap-southeast-2`, Account: `<REDACTED>`)  
 > **Thời điểm cập nhật:** `2026-11-24T05:18:29Z`  
 > **Trạng thái Cảnh báo (Alarm State):** 🔴 **ALARM (Đã kích hoạt cảnh báo thực tế)**  
 > **Trạng thái Dashboard:** 🟢 **Đã hiển thị đầy đủ 4 số đo trên biểu đồ**
