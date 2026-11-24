@@ -6,7 +6,8 @@ import { AppModule } from './app.module';
 import { SafeLogger } from './common/safe-logger';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: new SafeLogger() });
+  const safeLogger = new SafeLogger();
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: safeLogger });
   const configService = app.get(ConfigService);
 
   const port = configService.get<number>('PORT') || 4000;
@@ -39,7 +40,7 @@ async function bootstrap(): Promise<void> {
   );
 
   await app.listen(port);
-  process.stdout.write(`${JSON.stringify({ timestamp: new Date().toISOString(), level: 'log', message: 'Backend API listening', port, path: '/api' })}\n`);
+  safeLogger.log({ event: 'backend_listening', port, path: '/api' });
 }
 
 bootstrap().catch((err) => {

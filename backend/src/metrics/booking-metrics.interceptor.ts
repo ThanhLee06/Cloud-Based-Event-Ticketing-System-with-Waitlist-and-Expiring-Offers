@@ -15,18 +15,13 @@ export class BookingMetricsInterceptor implements NestInterceptor {
     if (request.method !== 'POST' || request.path.replace(/\/$/, '') !== '/api/reservations') return next.handle();
 
     const startedAt = process.hrtime.bigint();
-    const finish = (error?: unknown): void => {
+    let terminalError: unknown;
+    response.once('finish', () => {
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
-      const statusCode = error instanceof HttpException ? error.getStatus() : response.statusCode;
       this.metrics.recordBookingLatency(durationMs);
-      if (statusCode === 409 && this.isCapacityConflict(error)) this.metrics.recordCapacityConflict();
-    };
-    return next.handle().pipe(
-      tap({
-        next: () => finish(),
-        error: (error: unknown) => finish(error),
-      })
-    );
+      if (response.statusCode === 409 && this.isCapacityConflict(terminalError)) this.metrics.recordCapacityConflict();
+    });
+    return next.handle().pipe(tap({ error: (error: unknown) => { terminalError = error; } }));
   }
 
   private isCapacityConflict(error: unknown): boolean {
