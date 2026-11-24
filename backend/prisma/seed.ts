@@ -61,13 +61,7 @@ async function seedUsers(): Promise<void> {
         const hash = u.role === UserRole.ADMIN ? adminPasswordHash : passwordHash;
         return prisma.user.upsert({
           where: { email: u.email },
-          update: {
-            name: u.name,
-            role: u.role,
-            status: UserStatus.ACTIVE,
-            passwordHash: hash,
-            emailVerifiedAt: verifiedAt,
-          },
+          update: {},
           create: { ...u, status: UserStatus.ACTIVE, passwordHash: hash, emailVerifiedAt: verifiedAt },
         });
       })
@@ -306,7 +300,7 @@ async function seedEvents(): Promise<void> {
 
       return prisma.event.upsert({
         where: { slug: ev.slug },
-        update: payload,
+        update: {},
         create: payload,
       });
     })
