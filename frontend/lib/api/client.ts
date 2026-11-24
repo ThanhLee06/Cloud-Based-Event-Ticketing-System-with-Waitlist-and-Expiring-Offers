@@ -12,7 +12,12 @@
  *   const { data } = await api.get<PublicUser>('/users/me');
  *   const { data } = await postIdempotent('/reservations', { eventId });
  */
-import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
+import axios, {
+  AxiosError,
+  AxiosRequestConfig,
+  AxiosResponse,
+  InternalAxiosRequestConfig,
+} from 'axios';
 
 export const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'
@@ -21,7 +26,14 @@ export const API_BASE_URL = (
 const TOKEN_KEY = 'ef_access_token';
 const LOGIN_PATH = '/login';
 /** Các route xác thực: 401 ở đây là "sai mật khẩu", không phải "hết phiên" → không tự redirect. */
-const AUTH_ENDPOINTS = ['/auth/login', '/auth/register'];
+const AUTH_ENDPOINTS = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/verify-email',
+  '/auth/resend-verification',
+  '/auth/config',
+  '/auth/cognito/session',
+];
 
 // ----------------------------- Token storage -----------------------------
 
@@ -128,6 +140,30 @@ export const getServerTimeOffset = (): { offsetMs: number; synced: boolean } => 
   synced: hasServerTime,
 });
 
+// ----------------------------- Làm mới token (ST-036) -----------------------------
+// Access token Cognito sống 60 phút. Khi API trả 401, thử lấy token mới bằng refresh token
+// MỘT lần rồi gửi lại request; chỉ khi không làm mới được mới đẩy người dùng về /login.
+
+type TokenRefresher = () => Promise<string | null>;
+let tokenRefresher: TokenRefresher | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+
+/** AuthProvider đăng ký hàm làm mới khi chạy với Cognito (null = chế độ local, không làm mới). */
+export const setTokenRefresher = (refresher: TokenRefresher | null): void => {
+  tokenRefresher = refresher;
+};
+
+const refreshOnce = (): Promise<string | null> => {
+  if (!tokenRefresher) return Promise.resolve(null);
+  // Nhiều request cùng 401 một lúc → chỉ gọi Cognito một lần.
+  refreshInFlight ??= tokenRefresher().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+};
+
+type RetriableConfig = InternalAxiosRequestConfig & { _efRetried?: boolean };
+
 const isAuthEndpoint = (url?: string): boolean =>
   !!url && AUTH_ENDPOINTS.some((path) => url.split('?')[0].endsWith(path));
 
@@ -136,8 +172,24 @@ api.interceptors.response.use(
     recordServerTime(response.headers);
     return response;
   },
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
     if (error.response) recordServerTime(error.response.headers);
+    const original = error.config as RetriableConfig | undefined;
+    const code = (error.response?.data as { code?: unknown } | undefined)?.code;
+    if (
+      error.response?.status === 401 &&
+      original &&
+      !original._efRetried &&
+      !isAuthEndpoint(original.url) &&
+      code !== 'ACCOUNT_NOT_LINKED'
+    ) {
+      const fresh = await refreshOnce();
+      if (fresh) {
+        original._efRetried = true;
+        original.headers.set('Authorization', `Bearer ${fresh}`);
+        return api.request(original);
+      }
+    }
     if (error.response?.status === 401 && !isAuthEndpoint(error.config?.url)) {
       tokenStorage.clear();
       unauthorizedListeners.forEach((fn) => fn());

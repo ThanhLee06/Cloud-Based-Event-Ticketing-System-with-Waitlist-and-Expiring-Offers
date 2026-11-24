@@ -7,7 +7,9 @@ import { Test } from '@nestjs/testing';
 import { UserRole, UserStatus } from '@prisma/client';
 import type { Request } from 'express';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { AuthTokenService } from '../auth/auth-token.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsController } from './events.controller';
 import { EventsService } from './events.service';
@@ -45,6 +47,9 @@ describe('ST-010 (Bước 2) - Optional JWT Authentication cho GET /api/events/:
       controllers: [EventsController],
       providers: [
         OptionalJwtAuthGuard,
+        // ST-036: guard xác minh token qua AuthTokenService (AUTH_MODE mặc định = local).
+        AuthTokenService,
+        { provide: ConfigService, useValue: { get: () => undefined } },
         { provide: JwtService, useValue: jwtMock },
         { provide: PrismaService, useValue: prismaMock },
         { provide: EventsService, useValue: eventsServiceMock },

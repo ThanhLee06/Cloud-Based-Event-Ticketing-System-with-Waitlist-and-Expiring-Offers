@@ -56,3 +56,11 @@ export class ResendVerificationDto {
   @IsEmail({}, { message: 'Email không hợp lệ.' })
   email: string;
 }
+
+/** POST /api/auth/cognito/session — ST-036: ID token nhận được sau khi đăng nhập Cognito. */
+export class CognitoSessionDto {
+  @IsString()
+  @MinLength(20)
+  @MaxLength(8192)
+  idToken: string;
+}
