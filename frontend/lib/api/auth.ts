@@ -156,3 +156,31 @@ export async function adminGetOverview(): Promise<AdminOverview> {
   const { data } = await api.get<AdminOverview>('/admin/overview');
   return data;
 }
+
+// ----- ST-036: Amazon Cognito -----
+
+export interface AuthConfig {
+  mode: 'local' | 'cognito';
+  cognito: { domain: string; clientId: string; region: string } | null;
+}
+
+let authConfigPromise: Promise<AuthConfig> | null = null;
+
+/** Backend cho biết đang dùng đăng nhập local hay Cognito (gọi 1 lần, lưu lại). */
+export function getAuthConfig(): Promise<AuthConfig> {
+  authConfigPromise ??= api
+    .get<AuthConfig>('/auth/config')
+    .then((res) => res.data)
+    .catch(() => {
+      // Backend cũ chưa có /auth/config hoặc lỗi mạng → coi như local để không chặn giao diện.
+      authConfigPromise = null;
+      return { mode: 'local', cognito: null } as AuthConfig;
+    });
+  return authConfigPromise;
+}
+
+/** Gửi ID token Cognito để backend liên kết / tạo user EventFlow. */
+export async function linkCognitoSession(idToken: string): Promise<PublicUser> {
+  const { data } = await api.post<{ user: PublicUser }>('/auth/cognito/session', { idToken });
+  return data.user;
+}

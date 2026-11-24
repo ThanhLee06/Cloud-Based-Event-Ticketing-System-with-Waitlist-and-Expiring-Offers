@@ -172,7 +172,9 @@ const OrganizerPage: React.FC = () => {
               type='button'
               className='ef-btn ef-btn-secondary'
               onClick={() => {
-                logout();
+                // Cognito: logout() chuyển sang trang đăng xuất của Cognito rồi quay về /login;
+                // '/organizer' được ghi nhớ để đăng nhập xong vào thẳng Kênh Ban tổ chức.
+                logout('/organizer');
                 router.push('/login?next=/organizer');
               }}
             >

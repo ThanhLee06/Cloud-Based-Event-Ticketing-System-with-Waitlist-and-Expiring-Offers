@@ -1,12 +1,13 @@
 import * as crypto from 'node:crypto';
 import {
   BadRequestException, ConflictException, ForbiddenException, GoneException,
-  Injectable, NotFoundException,
+  Injectable, Logger, NotFoundException,
 } from '@nestjs/common';
 import { Prisma, ReservationSource, ReservationStatus } from '@prisma/client';
 import { DEFAULT_TX_OPTIONS, runWithPgRetry } from '../common/pg-tx.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
+import { MetricsService } from '../metrics/metrics.service';
 import type { CreateReservationDto, ReservationResponse } from './dto/reservations.dto';
 
 const KEY_PATTERN = /^[A-Za-z0-9._:-]{1,80}$/;
@@ -15,7 +16,8 @@ const EVENT_SELECT = { id: true, slug: true, title: true, category: true, venue:
 
 @Injectable()
 export class ReservationsService {
-  constructor(private readonly prisma: PrismaService, private readonly waitlist: WaitlistService) {}
+  private readonly logger = new Logger(ReservationsService.name);
+  constructor(private readonly prisma: PrismaService, private readonly waitlist: WaitlistService, private readonly metrics: MetricsService) {}
 
   async create(userId: string, dto: CreateReservationDto, key: string): Promise<ReservationResponse> {
     this.assertKey(key);
@@ -28,7 +30,10 @@ export class ReservationsService {
       if (!event) throw new NotFoundException('Không tìm thấy sự kiện.');
       const [clock] = await tx.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
       if (event.salesCloseAt <= clock.now || event.startsAt <= clock.now) throw new GoneException('Sự kiện đã đóng bán vé hoặc đã bắt đầu.');
-      if (event.soldCount + event.reservedCount >= event.capacity) throw new ConflictException('Sự kiện đã hết vé.');
+      if (event.soldCount + event.reservedCount >= event.capacity) {
+        this.logger.warn({ event: 'capacity_conflict', message: 'Sự kiện đã hết vé.', eventId: dto.eventId });
+        throw new ConflictException('Sự kiện đã hết vé.');
+      }
       const active = await tx.reservation.findFirst({
         where: { eventId: dto.eventId, userId, status: { in: [ReservationStatus.HOLD, ReservationStatus.CONFIRMED] } },
         select: { id: true },
@@ -136,7 +141,7 @@ export class ReservationsService {
   ): Promise<T> {
     const requestId = `${userId}:${key}`;
     const requestHash = crypto.createHash('sha256').update(JSON.stringify({ endpoint, payload })).digest('hex');
-    return runWithPgRetry(() => this.prisma.$transaction(async (tx) => {
+    const result = (await runWithPgRetry(() => this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`
   SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))::text AS locked
 `;
@@ -145,7 +150,7 @@ export class ReservationsService {
         if (previous.endpoint !== endpoint || previous.requestHash !== requestHash) {
           throw new ConflictException('Idempotency-Key đã được sử dụng cho endpoint hoặc payload khác.');
         }
-        return previous.responseBody as T;
+        return { value: previous.responseBody as T, replayed: true };
       }
       const response = await operation(tx);
       await tx.idempotencyRecord.create({
@@ -153,7 +158,12 @@ export class ReservationsService {
           responseStatus: endpoint === 'POST:/reservations' ? 201 : 200,
           responseBody: JSON.parse(JSON.stringify(response)) as Prisma.InputJsonValue },
       });
-      return response;
-    }, TX_OPTIONS), 2);
+      return { value: response, replayed: false };
+    }, TX_OPTIONS), 2)) as { value: T; replayed: boolean };
+    if (result.replayed) {
+      this.logger.warn({ event: 'duplicate_replay', message: 'Idempotency replay detected', endpoint, key });
+      this.metrics.recordDuplicateReplay();
+    }
+    return result.value;
   }
 }

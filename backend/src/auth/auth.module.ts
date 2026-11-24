@@ -4,14 +4,17 @@ import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ACCESS_TOKEN_TTL_SECONDS } from './auth.types';
 import { AuthController } from './auth.controller';
+import { AuthTokenService } from './auth-token.service';
 import { AuthService } from './auth.service';
+import { CognitoSessionService } from './cognito-session.service';
 import { EmailVerificationService } from './email-verification.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { LocalAuthOnlyGuard } from './guards/local-auth-only.guard';
 import { OptionalJwtAuthGuard } from './guards/optional-jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 
 /**
- * TV1 — AuthModule (ST-002, ST-004).
+ * TV1 — AuthModule (ST-002, ST-004, ST-036: AUTH_MODE=local|cognito).
  * @Global để các module khác (Events, Reservations, Waitlist, Organizer, Admin...) dùng ngay:
  *
  *   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -40,7 +43,16 @@ import { RolesGuard } from './guards/roles.guard';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, EmailVerificationService, JwtAuthGuard, OptionalJwtAuthGuard, RolesGuard],
-  exports: [JwtModule, JwtAuthGuard, OptionalJwtAuthGuard, RolesGuard],
+  providers: [
+    AuthService,
+    AuthTokenService,
+    CognitoSessionService,
+    EmailVerificationService,
+    JwtAuthGuard,
+    OptionalJwtAuthGuard,
+    LocalAuthOnlyGuard,
+    RolesGuard,
+  ],
+  exports: [JwtModule, AuthTokenService, JwtAuthGuard, OptionalJwtAuthGuard, LocalAuthOnlyGuard, RolesGuard],
 })
 export class AuthModule {}
