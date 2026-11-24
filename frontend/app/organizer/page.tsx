@@ -4,10 +4,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth, loginRedirectPath, ROLE_LABELS } from '@lib/auth/AuthProvider';
-import { useMockStore } from '@lib/mock/store';
 import { formatVND, formatDateVN } from '@lib/utils/format';
 import { getApiErrorMessage } from '@lib/api/client';
 import {
+  createOrganizerEvent,
   downloadOrganizerAttendeesCsv,
   getOrganizerAttendees,
   getOrganizerEvents,
@@ -18,6 +18,7 @@ import {
   OrganizerStats,
   OrganizerWaitlistEntry,
   promoteOrganizerWaitlist,
+  updateOrganizerEvent,
 } from '@lib/api/organizer';
 import {
   Calendar,
@@ -29,16 +30,31 @@ import {
   ExternalLink,
   ShieldAlert,
   Plus,
+  Pencil,
   ArrowLeft,
   Users,
 } from 'lucide-react';
 
+const DEFAULT_POSTER_URL =
+  'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?w=1200&q=80';
+
+const getAvailableTickets = (event: OrganizerEvent): number =>
+  Math.max(0, event.capacity - event.soldCount - event.reservedCount);
+
+const formatDateTimeLocalInput = (value: Date | string): string => {
+  const d = typeof value === 'string' ? new Date(value) : value;
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
 const OrganizerPage: React.FC = () => {
   const router = useRouter();
   const { user: authUser, status: authStatus, loggedOutByUser, logout } = useAuth();
-  const { getAvailableTickets, createEvent, isHydrated } = useMockStore();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [savingEvent, setSavingEvent] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string>('');
   const [organizerEvents, setOrganizerEvents] = useState<OrganizerEvent[]>([]);
@@ -54,13 +70,50 @@ const OrganizerPage: React.FC = () => {
   const [newTitle, setNewTitle] = useState('');
   const [newCategory, setNewCategory] = useState('Âm nhạc');
   const [newVenue, setNewVenue] = useState('');
+  const [newAddress, setNewAddress] = useState('');
   const [newCity, setNewCity] = useState('TP. Hồ Chí Minh');
+  const [newPoster, setNewPoster] = useState(DEFAULT_POSTER_URL);
   const [newPrice, setNewPrice] = useState('0');
   const [newCapacity, setNewCapacity] = useState('50');
   const [newStartsAt, setNewStartsAt] = useState('');
   const [newSalesCloseAt, setNewSalesCloseAt] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+
+  const openCreateModal = () => {
+    const now = Date.now();
+    setEditingEventId(null);
+    setNewTitle('');
+    setNewCategory('Âm nhạc');
+    setNewVenue('');
+    setNewAddress('');
+    setNewCity('TP. Hồ Chí Minh');
+    setNewPoster(DEFAULT_POSTER_URL);
+    setNewPrice('0');
+    setNewCapacity('50');
+    setNewStartsAt(formatDateTimeLocalInput(new Date(now + 7 * 86400000)));
+    setNewSalesCloseAt(formatDateTimeLocalInput(new Date(now + 6 * 86400000)));
+    setNewDescription('');
+    setFormError(null);
+    setShowCreateModal(true);
+  };
+
+  const openEditModal = (event: OrganizerEvent) => {
+    setEditingEventId(event.id);
+    setNewTitle(event.title);
+    setNewCategory(event.category);
+    setNewVenue(event.venue);
+    setNewAddress(event.address ?? '');
+    setNewCity(event.city);
+    setNewPoster(event.poster || DEFAULT_POSTER_URL);
+    setNewPrice(String(event.priceVnd));
+    setNewCapacity(String(event.capacity));
+    setNewStartsAt(formatDateTimeLocalInput(event.startsAt));
+    setNewSalesCloseAt(formatDateTimeLocalInput(event.salesCloseAt));
+    setNewDescription(event.description ?? '');
+    setFormError(null);
+    setShowCreateModal(true);
+  };
 
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -123,22 +176,14 @@ const OrganizerPage: React.FC = () => {
 
   useEffect(() => {
     if (!showCreateModal) return;
-    const now = Date.now();
-    const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
-    const fmtLocal = (d: Date) =>
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-
-    setNewStartsAt(fmtLocal(new Date(now + 7 * 86400000)));
-    setNewSalesCloseAt(fmtLocal(new Date(now + 6 * 86400000)));
-
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowCreateModal(false);
+      if (e.key === 'Escape' && !savingEvent) setShowCreateModal(false);
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showCreateModal]);
+  }, [showCreateModal, savingEvent]);
 
-  if (authStatus === 'loading' || !isHydrated) {
+  if (authStatus === 'loading') {
     return <div className='ef-loading'>Đang tải bảng điều khiển Ban tổ chức...</div>;
   }
 
@@ -274,12 +319,17 @@ const OrganizerPage: React.FC = () => {
     }
   };
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  const handleEventSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
-    if (!newTitle.trim() || !newVenue.trim()) {
-      setFormError('Vui lòng nhập đầy đủ tên sự kiện và địa điểm tổ chức');
+    if (!newTitle.trim() || !newVenue.trim() || !newAddress.trim()) {
+      setFormError('Vui lòng nhập đầy đủ tên sự kiện, địa điểm tổ chức và địa chỉ chi tiết');
+      return;
+    }
+    const posterUrl = newPoster.trim();
+    if (!/^https?:\/\/.+/i.test(posterUrl)) {
+      setFormError('Đường dẫn ảnh poster phải bắt đầu bằng http:// hoặc https://');
       return;
     }
     const price = parseInt(newPrice, 10);
@@ -292,6 +342,14 @@ const OrganizerPage: React.FC = () => {
       setFormError('Sức chứa sự kiện phải lớn hơn 0');
       return;
     }
+    if (editingEventId) {
+      const targetEvent = organizerEvents.find((evt) => evt.id === editingEventId);
+      const minCapacity = targetEvent ? targetEvent.soldCount + targetEvent.reservedCount : 1;
+      if (capacity < minCapacity) {
+        setFormError(`Sức chứa mới không thể nhỏ hơn tổng số vé đã bán + đang giữ (${minCapacity})`);
+        return;
+      }
+    }
     const startsAtDate = new Date(newStartsAt);
     const salesCloseAtDate = new Date(newSalesCloseAt);
     if (isNaN(startsAtDate.getTime()) || isNaN(salesCloseAtDate.getTime())) {
@@ -303,26 +361,45 @@ const OrganizerPage: React.FC = () => {
       return;
     }
 
-    const created = createEvent({
+    const payload = {
       title: newTitle.trim(),
+      description: newDescription.trim() || 'Mô tả sự kiện chi tiết...',
       category: newCategory,
       venue: newVenue.trim(),
+      address: newAddress.trim(),
       city: newCity,
+      poster: posterUrl,
       priceVnd: price,
       capacity,
       startsAt: startsAtDate.toISOString(),
       salesCloseAt: salesCloseAtDate.toISOString(),
-      description: newDescription.trim() || 'Mô tả sự kiện chi tiết...',
-    });
+    };
 
-    setSelectedEventId(created.id);
-    setShowCreateModal(false);
-    setActionFeedback(`Đã tạo thành công sự kiện: "${created.title}"`);
-    setTimeout(() => setActionFeedback(null), 4000);
-    setNewTitle('');
-    setNewVenue('');
-    setNewPrice('0');
-    setNewDescription('');
+    setSavingEvent(true);
+    try {
+      const saved = editingEventId
+        ? await updateOrganizerEvent(editingEventId, payload)
+        : await createOrganizerEvent(payload);
+      await reloadDashboard();
+      setSelectedEventId(saved.id);
+      setShowCreateModal(false);
+      setEditingEventId(null);
+      setActionFeedback(
+        editingEventId
+          ? `Đã cập nhật sự kiện: "${saved.title}"`
+          : `Đã tạo thành công sự kiện: "${saved.title}"`
+      );
+      setTimeout(() => setActionFeedback(null), 4000);
+    } catch (error) {
+      setFormError(
+        getApiErrorMessage(
+          error,
+          editingEventId ? 'Không cập nhật được sự kiện.' : 'Không tạo được sự kiện mới.'
+        )
+      );
+    } finally {
+      setSavingEvent(false);
+    }
   };
 
   return (
@@ -357,7 +434,7 @@ const OrganizerPage: React.FC = () => {
 
         <button
           type='button'
-          onClick={() => setShowCreateModal(true)}
+          onClick={openCreateModal}
           className='ef-btn ef-btn-primary'
         >
           <Plus size={16} />
@@ -551,15 +628,26 @@ const OrganizerPage: React.FC = () => {
                     </strong>
                   </div>
                 </div>
-                <Link
-                  href={`/events/${selectedEvent.slug}`}
-                  target='_blank'
-                  className='ef-btn ef-btn-secondary'
-                  style={{ padding: '6px 12px', fontSize: '0.82rem' }}
-                >
-                  <span>Xem trang sự kiện</span>
-                  <ExternalLink size={14} />
-                </Link>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type='button'
+                    onClick={() => openEditModal(selectedEvent)}
+                    className='ef-btn ef-btn-secondary'
+                    style={{ padding: '6px 12px', fontSize: '0.82rem' }}
+                  >
+                    <Pencil size={14} />
+                    <span>Sửa sự kiện</span>
+                  </button>
+                  <Link
+                    href={`/events/${selectedEvent.slug}`}
+                    target='_blank'
+                    className='ef-btn ef-btn-secondary'
+                    style={{ padding: '6px 12px', fontSize: '0.82rem' }}
+                  >
+                    <span>Xem trang sự kiện</span>
+                    <ExternalLink size={14} />
+                  </Link>
+                </div>
               </div>
 
               {/* Inventory Bar */}
@@ -865,7 +953,7 @@ const OrganizerPage: React.FC = () => {
           </p>
           <button
             type='button'
-            onClick={() => setShowCreateModal(true)}
+            onClick={openCreateModal}
             className='ef-btn ef-btn-primary'
           >
             Tạo sự kiện đầu tiên
@@ -873,7 +961,7 @@ const OrganizerPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modal Tạo sự kiện mới */}
+      {/* Modal Tạo / Sửa sự kiện */}
       {showCreateModal && (
         <div
           style={{
@@ -887,7 +975,7 @@ const OrganizerPage: React.FC = () => {
             padding: 16,
           }}
           onClick={(e) => {
-            if (e.target === e.currentTarget) setShowCreateModal(false);
+            if (e.target === e.currentTarget && !savingEvent) setShowCreateModal(false);
           }}
         >
           <div
@@ -913,12 +1001,13 @@ const OrganizerPage: React.FC = () => {
               }}
             >
               <h2 id='create-event-modal-title' style={{ fontSize: '1.25rem', fontWeight: 700 }}>
-                Tạo sự kiện mới
+                {editingEventId ? 'Chỉnh sửa sự kiện' : 'Tạo sự kiện mới'}
               </h2>
               <button
                 type='button'
+                disabled={savingEvent}
                 onClick={() => setShowCreateModal(false)}
-                aria-label='Đóng modal tạo sự kiện'
+                aria-label={editingEventId ? 'Đóng modal sửa sự kiện' : 'Đóng modal tạo sự kiện'}
                 style={{ color: '#71717a', padding: 4 }}
               >
                 <X size={20} />
@@ -940,7 +1029,7 @@ const OrganizerPage: React.FC = () => {
             )}
 
             <form
-              onSubmit={handleCreateSubmit}
+              onSubmit={handleEventSubmit}
               style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
             >
               <div>
@@ -1017,6 +1106,38 @@ const OrganizerPage: React.FC = () => {
                   placeholder='Ví dụ: Nhà Hát Thành Phố'
                   value={newVenue}
                   onChange={(e) => setNewVenue(e.target.value)}
+                  className='ef-input'
+                />
+              </div>
+
+              <div>
+                <label htmlFor='evt-address-input' className='ef-label'>
+                  Địa chỉ chi tiết *
+                </label>
+                <input
+                  id='evt-address-input'
+                  name='address'
+                  type='text'
+                  required
+                  placeholder='Ví dụ: Số 7 Công Trường Lam Sơn, Quận 1'
+                  value={newAddress}
+                  onChange={(e) => setNewAddress(e.target.value)}
+                  className='ef-input'
+                />
+              </div>
+
+              <div>
+                <label htmlFor='evt-poster-input' className='ef-label'>
+                  Đường dẫn ảnh poster (URL) *
+                </label>
+                <input
+                  id='evt-poster-input'
+                  name='poster'
+                  type='url'
+                  required
+                  placeholder='https://images.unsplash.com/...'
+                  value={newPoster}
+                  onChange={(e) => setNewPoster(e.target.value)}
                   className='ef-input'
                 />
               </div>
@@ -1104,13 +1225,18 @@ const OrganizerPage: React.FC = () => {
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 12 }}>
                 <button
                   type='button'
+                  disabled={savingEvent}
                   onClick={() => setShowCreateModal(false)}
                   className='ef-btn ef-btn-secondary'
                 >
                   Hủy
                 </button>
-                <button type='submit' className='ef-btn ef-btn-primary'>
-                  Xuất bản sự kiện
+                <button type='submit' disabled={savingEvent} className='ef-btn ef-btn-primary'>
+                  {savingEvent
+                    ? 'Đang lưu...'
+                    : editingEventId
+                      ? 'Lưu thay đổi'
+                      : 'Xuất bản sự kiện'}
                 </button>
               </div>
             </form>

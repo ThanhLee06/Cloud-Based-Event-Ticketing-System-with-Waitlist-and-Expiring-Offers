@@ -50,8 +50,37 @@ export interface OrganizerAttendee {
   confirmedAt: string;
 }
 
+export interface CreateOrganizerEventInput {
+  title: string;
+  description: string;
+  category: string;
+  venue: string;
+  address: string;
+  city: string;
+  poster: string;
+  priceVnd: number;
+  capacity: number;
+  startsAt: string;
+  salesCloseAt: string;
+}
+
+export type UpdateOrganizerEventInput = Partial<CreateOrganizerEventInput>;
+
 export async function getOrganizerEvents(): Promise<OrganizerEvent[]> {
   const { data } = await api.get<OrganizerEvent[]>('/organizer/events');
+  return data;
+}
+
+export async function createOrganizerEvent(input: CreateOrganizerEventInput): Promise<OrganizerEvent> {
+  const { data } = await api.post<OrganizerEvent>('/organizer/events', input);
+  return data;
+}
+
+export async function updateOrganizerEvent(
+  eventId: string,
+  input: UpdateOrganizerEventInput
+): Promise<OrganizerEvent> {
+  const { data } = await api.patch<OrganizerEvent>(`/organizer/events/${eventId}`, input);
   return data;
 }
 
