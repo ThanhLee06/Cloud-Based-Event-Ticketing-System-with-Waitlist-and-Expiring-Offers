@@ -5,9 +5,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import useClickOutside from '@hooks/useClickOutside';
 import { useRouter } from 'next/navigation';
-import { useMockStore } from '@lib/mock/store';
 import { useAuth, ROLE_LABELS } from '@lib/auth/AuthProvider';
 import { getMyWaitlist, WAITLIST_UPDATED_EVENT } from '@lib/api/waitlist';
+import { getMyReservations } from '@lib/api/reservations';
 import {
   Ticket,
   ChevronDown,
@@ -50,13 +50,13 @@ const Header: React.FC = () => {
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
   const router = useRouter();
-  const { getUserReservations, isHydrated } = useMockStore();
   const { user: authUser, status: authStatus, logout } = useAuth();
   const isOrganizer = authUser?.role === 'ORGANIZER';
   const [waitlistCounts, setWaitlistCounts] = useState<{ offers: number; waiting: number }>({
     offers: 0,
     waiting: 0,
   });
+  const [activeTicketsCount, setActiveTicketsCount] = useState(0);
 
   const handleLogout = () => {
     setUserDropdownOpen(false);
@@ -100,9 +100,13 @@ const Header: React.FC = () => {
     }
   }, [authStatus, authUser]);
 
-  // Đồng bộ badge hàng chờ và offer thật từ PostgreSQL qua GET /api/waitlist/me.
+  // Đồng bộ badge vé của tôi, hàng chờ và offer thật từ PostgreSQL.
   useEffect(() => {
-    if (authStatus !== 'authenticated' || !authUser) return;
+    if (authStatus !== 'authenticated' || !authUser) {
+      setWaitlistCounts({ offers: 0, waiting: 0 });
+      setActiveTicketsCount(0);
+      return;
+    }
     let active = true;
     void getMyWaitlist()
       .then((items) => {
@@ -111,6 +115,19 @@ const Header: React.FC = () => {
           offers: items.filter((w) => w.status === 'OFFERED').length,
           waiting: items.filter((w) => w.status === 'WAITING').length,
         });
+      })
+      .catch(() => {});
+
+    void getMyReservations()
+      .then((reservations) => {
+        if (!active) return;
+        const now = Date.now();
+        const activeCount = reservations.filter(
+          (r) =>
+            r.status === 'CONFIRMED' ||
+            (r.status === 'HOLD' && new Date(r.expiresAt).getTime() > now)
+        ).length;
+        setActiveTicketsCount(activeCount);
       })
       .catch(() => {});
 
@@ -123,13 +140,6 @@ const Header: React.FC = () => {
       window.removeEventListener(WAITLIST_UPDATED_EVENT, onUpdated);
     };
   }, [authStatus, authUser, pathname, refreshWaitlistCounts]);
-
-  // Vé của tôi vẫn lấy dữ liệu mẫu chờ ST-021; hàng chờ/offer dùng PostgreSQL thật.
-  const showCounts = isHydrated && !!authUser;
-  const myReservations = showCounts ? getUserReservations() : [];
-  const activeTicketsCount = myReservations.filter(
-    (r) => r.status === 'CONFIRMED' || r.status === 'HOLD'
-  ).length;
 
   const isAuthed = authStatus === 'authenticated' && !!authUser;
   const pendingOffersCount = isAuthed ? waitlistCounts.offers : 0;
