@@ -7,6 +7,7 @@ import { Prisma, ReservationSource, ReservationStatus } from '@prisma/client';
 import { DEFAULT_TX_OPTIONS, runWithPgRetry } from '../common/pg-tx.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
+import { MetricsService } from '../metrics/metrics.service';
 import type { CreateReservationDto, ReservationResponse } from './dto/reservations.dto';
 
 const KEY_PATTERN = /^[A-Za-z0-9._:-]{1,80}$/;
@@ -15,8 +16,11 @@ const EVENT_SELECT = { id: true, slug: true, title: true, category: true, venue:
 
 @Injectable()
 export class ReservationsService {
-  constructor(private readonly prisma: PrismaService, private readonly waitlist: WaitlistService) {}
-
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly waitlist: WaitlistService,
+    private readonly metrics: MetricsService,
+  ) {}
   async create(userId: string, dto: CreateReservationDto, key: string): Promise<ReservationResponse> {
     this.assertKey(key);
     return this.withIdempotency(userId, key, 'POST:/reservations', dto, async (tx) => {
@@ -145,6 +149,7 @@ export class ReservationsService {
         if (previous.endpoint !== endpoint || previous.requestHash !== requestHash) {
           throw new ConflictException('Idempotency-Key đã được sử dụng cho endpoint hoặc payload khác.');
         }
+        this.metrics.recordDuplicateReplay();        
         return previous.responseBody as T;
       }
       const response = await operation(tx);
