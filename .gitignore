@@ -163,3 +163,10 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Terraform local cache and state (state can contain credentials and resource data)
+**/.terraform/**
+**/*.tfstate
+**/*.tfstate.*
+**/crash.log
+**/crash.*.log

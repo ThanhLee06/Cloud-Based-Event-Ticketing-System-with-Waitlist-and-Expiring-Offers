@@ -1,6 +1,7 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
+import { runWithRequestContext } from './request-context';
 
 const MAX_LEN = 64;
 const SAFE_ID = /^[A-Za-z0-9._:-]+$/;
@@ -32,6 +33,6 @@ export class RequestIdMiddleware implements NestMiddleware {
         durationMs: Date.now() - startedAt,
       });
     });
-    next();
+    runWithRequestContext(requestId, () => next());
   }
 }

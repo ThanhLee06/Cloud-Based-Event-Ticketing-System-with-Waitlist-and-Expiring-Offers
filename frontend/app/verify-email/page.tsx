@@ -22,7 +22,7 @@ const readParams = () => {
 /** Nhập mã OTP 6 số gửi qua email sau khi đăng ký (hoặc khi đăng nhập mà chưa xác thực). */
 const VerifyEmailPage: React.FC = () => {
   const router = useRouter();
-  const { verifyEmail, user, status } = useAuth();
+  const { verifyEmail, user, status, mode } = useAuth();
 
   const [email, setEmail] = useState('');
   const [emailLocked, setEmailLocked] = useState(false);
@@ -63,6 +63,11 @@ const VerifyEmailPage: React.FC = () => {
     const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
     return () => clearTimeout(t);
   }, [cooldown]);
+
+  // ST-036: với Cognito, mã xác thực email được nhập ngay trên trang của Cognito.
+  useEffect(() => {
+    if (mode === 'cognito') router.replace('/login');
+  }, [mode, router]);
 
   // Đã đăng nhập (vd. xác thực xong ở tab khác) → không cần ở trang này.
   useEffect(() => {

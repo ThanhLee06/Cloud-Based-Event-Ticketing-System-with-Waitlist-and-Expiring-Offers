@@ -6,15 +6,18 @@ import { AppModule } from './app.module';
 import { SafeLogger } from './common/safe-logger';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: new SafeLogger() });
+  const safeLogger = new SafeLogger();
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: safeLogger });
   const configService = app.get(ConfigService);
 
   const port = configService.get<number>('PORT') || 4000;
   const corsOrigin = configService.get<string>('CORS_ORIGIN') || 'http://localhost:3000';
 
-  // Chạy sau load balancer (AWS) → bật TRUST_PROXY=true để rate-limit đúng IP thật của client.
-  if (configService.get<boolean>('TRUST_PROXY')) {
-    app.set('trust proxy', 1);
+  // ST-036: tin đúng số lớp proxy đứng trước (Load Balancer = 1, CloudFront + Load Balancer = 2)
+  // để req.ip là IP thật của khách → rate-limit đăng nhập tính đúng người.
+  const trustProxyHops = configService.get<number>('TRUST_PROXY') ?? 0;
+  if (trustProxyHops > 0) {
+    app.set('trust proxy', trustProxyHops);
   }
 
   app.setGlobalPrefix('api');
@@ -37,7 +40,7 @@ async function bootstrap(): Promise<void> {
   );
 
   await app.listen(port);
-  process.stdout.write(`${JSON.stringify({ timestamp: new Date().toISOString(), level: 'log', message: 'Backend API listening', port, path: '/api' })}\n`);
+  safeLogger.log({ event: 'backend_listening', port, path: '/api' });
 }
 
 bootstrap().catch((err) => {

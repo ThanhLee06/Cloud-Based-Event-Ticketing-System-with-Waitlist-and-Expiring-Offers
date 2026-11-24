@@ -14,6 +14,8 @@ import { EventSlugService } from '../events/event-slug.service';
 import { isEventSlugUniqueViolation } from '../events/slug.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { randomUUID } from 'node:crypto';
 
 export interface OrganizerStats {
   totalEvents: number;
@@ -60,6 +62,7 @@ export interface AttendeeRow {
 
 @Injectable()
 export class OrganizerService {
+  private readonly s3 = new S3Client({ region: process.env.AWS_REGION || 'ap-southeast-2' });
   constructor(
     private readonly prisma: PrismaService,
     private readonly waitlistService: WaitlistService,
@@ -264,6 +267,7 @@ export class OrganizerService {
   }
 
   async exportAttendeesCsv(user: AuthUser, eventId: string): Promise<{ csv: string; filename: string }> {
+    // Enforce ownership before generating or touching the private object store.
     const attendees = await this.getAttendees(user, eventId);
     const escapeCsv = (value: unknown): string => {
       const text = value instanceof Date ? value.toISOString() : String(value ?? '');
@@ -277,7 +281,20 @@ export class OrganizerService {
           attendee.source, attendee.confirmedAt].map(escapeCsv).join(',')
       ),
     ];
-    return { csv: `\uFEFF${lines.join('\r\n')}`, filename: `attendees-${eventId}.csv` };
+    const csv = `\uFEFF${lines.join('\r\n')}`;
+    const filename = `attendees-${eventId}.csv`;
+    const bucket = process.env.ATTENDEE_EXPORTS_BUCKET;
+    if (!bucket) throw new Error('ATTENDEE_EXPORTS_BUCKET is required for attendee exports');
+    const key = `exports/${eventId}/${randomUUID()}.csv`;
+    await this.s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: csv, ContentType: 'text/csv; charset=utf-8', ServerSideEncryption: 'AES256' }));
+    try {
+      const object = await this.s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+      const storedCsv = await object.Body?.transformToString('utf-8');
+      if (storedCsv === undefined) throw new Error('S3 returned an empty attendee export');
+      return { csv: storedCsv, filename };
+    } finally {
+      await this.s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    }
   }
 
   getEvents(user: AuthUser) {

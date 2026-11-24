@@ -13,15 +13,29 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useMockStore } from '@lib/mock/store';
 import type { DemoUser } from '@lib/mock/types';
-import { onUnauthorized, tokenStorage } from '@lib/api/client';
+import { onUnauthorized, setTokenRefresher, tokenStorage } from '@lib/api/client';
 import * as authApi from '@lib/api/auth';
-import type { PublicUser, RegisterResponse, UserRole } from '@lib/api/auth';
+import type { AuthConfig, PublicUser, RegisterResponse, UserRole } from '@lib/api/auth';
+import {
+  clearCognitoTokens,
+  cognitoLogoutUrl,
+  completeCognitoLogin,
+  refreshCognitoTokens,
+  rememberNextPath,
+  startCognitoLogin,
+} from './cognito';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
 
 interface AuthContextValue {
   user: PublicUser | null;
   status: AuthStatus;
+  /** ST-036: 'local' (JWT tự ký, dev) hoặc 'cognito' (AWS). null khi đang tải cấu hình. */
+  mode: AuthConfig['mode'] | null;
+  /** ST-036: chuyển sang trang đăng nhập / đăng ký của Cognito. */
+  startCognito: (screen: 'login' | 'signup', next?: string | null) => Promise<void>;
+  /** ST-036: xử lý /auth/callback → trả về user và trang cần quay lại. */
+  finishCognito: (search: URLSearchParams) => Promise<{ user: PublicUser; next: string | null }>;
   /** true ngay sau khi người dùng tự bấm Đăng xuất — trang bảo vệ không gắn ?next= khi chuyển về /login. */
   loggedOutByUser: boolean;
   login: (email: string, password: string) => Promise<PublicUser>;
@@ -29,7 +43,8 @@ interface AuthContextValue {
   register: (name: string, email: string, password: string) => Promise<RegisterResponse>;
   /** Nhập đúng mã OTP → đăng nhập luôn. */
   verifyEmail: (email: string, code: string) => Promise<PublicUser>;
-  logout: () => void;
+  /** Đăng xuất. `nextAfterLogin`: trang muốn mở sau khi đăng nhập lại (vd. /organizer). */
+  logout: (nextAfterLogin?: string) => void;
   /** Tải lại user từ server (sau khi Admin đổi quyền, sau khi sửa hồ sơ...). */
   refreshUser: () => Promise<PublicUser | null>;
   /** Cập nhật user trong phiên ngay sau khi gọi API thành công (không cần tải lại). */
@@ -61,7 +76,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUserState] = useState<PublicUser | null>(null);
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [loggedOutByUser, setLoggedOutByUser] = useState(false);
+  const [config, setConfig] = useState<AuthConfig | null>(null);
   const { currentUser, isHydrated, syncAuthUser } = useMockStore();
+
+  // ST-036: hỏi backend đang dùng local hay Cognito. Với Cognito, đăng ký hàm làm mới token cho client.ts.
+  useEffect(() => {
+    let cancelled = false;
+    void authApi.getAuthConfig().then((cfg) => {
+      if (cancelled) return;
+      setConfig(cfg);
+      const cognito = cfg.mode === 'cognito' ? cfg.cognito : null;
+      setTokenRefresher(cognito ? () => refreshCognitoTokens(cognito) : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const setUser = useCallback((u: PublicUser) => {
     setUserState(u);
@@ -71,6 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearSession = useCallback(() => {
     tokenStorage.clear();
+    clearCognitoTokens();
     setUserState(null);
     setStatus('anonymous');
   }, []);
@@ -92,10 +123,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [setUser, clearSession]);
 
-  // Khôi phục phiên khi tải trang.
+  // Khôi phục phiên khi tải trang (sau khi biết chế độ, để client.ts làm mới được token Cognito).
+  // Riêng /auth/callback tự xử lý đăng nhập nên không khôi phục ở đây.
   useEffect(() => {
+    if (!config) return;
+    if (typeof window !== 'undefined' && window.location.pathname === '/auth/callback') return;
     void refreshUser();
-  }, [refreshUser]);
+  }, [config, refreshUser]);
 
   // client.ts gặp 401 ở bất kỳ API nào → xóa phiên trong React state.
   useEffect(
@@ -145,16 +179,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [setUser]
   );
 
-  const logout = useCallback(() => {
-    setLoggedOutByUser(true);
-    clearSession();
-    syncAuthUser(null);
-  }, [clearSession, syncAuthUser]);
+  const startCognito = useCallback(
+    async (screen: 'login' | 'signup', next?: string | null) => {
+      if (config?.mode !== 'cognito' || !config.cognito) {
+        throw new Error('Hệ thống không dùng Cognito.');
+      }
+      await startCognitoLogin(config.cognito, { screen, next });
+    },
+    [config]
+  );
+
+  const finishCognito = useCallback(
+    async (search: URLSearchParams) => {
+      const cfg = config ?? (await authApi.getAuthConfig());
+      if (cfg.mode !== 'cognito' || !cfg.cognito) {
+        throw new Error('Hệ thống không dùng Cognito.');
+      }
+      const { idToken, next } = await completeCognitoLogin(cfg.cognito, search);
+      try {
+        const u = await authApi.linkCognitoSession(idToken);
+        setUser(u);
+        return { user: u, next };
+      } catch (err) {
+        clearCognitoTokens();
+        throw err;
+      }
+    },
+    [config, setUser]
+  );
+
+  const logout = useCallback(
+    (nextAfterLogin?: string) => {
+      setLoggedOutByUser(true);
+      clearSession();
+      syncAuthUser(null);
+      rememberNextPath(nextAfterLogin);
+      // Cognito: kết thúc cả phiên trên trang Cognito, nếu không lần sau sẽ tự đăng nhập lại
+      // đúng tài khoản cũ (không đổi được sang tài khoản Ban tổ chức).
+      if (config?.mode === 'cognito' && config.cognito && typeof window !== 'undefined') {
+        window.location.assign(cognitoLogoutUrl(config.cognito));
+      }
+    },
+    [clearSession, syncAuthUser, config]
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       status,
+      mode: config?.mode ?? null,
+      startCognito,
+      finishCognito,
       loggedOutByUser,
       login,
       register,
@@ -163,7 +238,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       refreshUser,
       setUser,
     }),
-    [user, status, loggedOutByUser, login, register, verifyEmail, logout, refreshUser, setUser]
+    [
+      user,
+      status,
+      config,
+      startCognito,
+      finishCognito,
+      loggedOutByUser,
+      login,
+      register,
+      verifyEmail,
+      logout,
+      refreshUser,
+      setUser,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

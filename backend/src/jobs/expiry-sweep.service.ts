@@ -2,6 +2,7 @@ import * as crypto from 'node:crypto';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { OfferStatus, Prisma, ReservationSource, ReservationStatus, WaitlistStatus } from '@prisma/client';
 import { DEFAULT_TX_OPTIONS } from '../common/pg-tx.util';
+import { runWithJobContext } from '../common/request-context';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
 import type { SweepExpiredRecordsResult } from './dto/jobs.dto';
@@ -71,38 +72,40 @@ export class ExpirySweepService implements OnModuleInit, OnModuleDestroy {
 
   async sweepExpiredRecords(jobId?: string, batchSize = 50): Promise<SweepExpiredRecordsResult> {
     const currentJobId = jobId ?? crypto.randomUUID();
-    const startTime = Date.now();
-    this.logger.log(`[Job ${currentJobId}] Bắt đầu quét các bản ghi quá hạn.`);
-    const offerRes = await this.runSweepCursorLoop(
-      'offer',
-      batchSize,
-      (cursor, limit) => this.fetchExpiredOffers(cursor, limit),
-      (tx, cand) => this.processExpiredOfferInTx(tx, cand.id, cand.eventId, currentJobId),
-      currentJobId,
-      'Offer'
-    );
-    const holdRes = await this.runSweepCursorLoop(
-      'hold',
-      batchSize,
-      (cursor, limit) => this.fetchExpiredDirectHolds(cursor, limit),
-      (tx, cand) => this.processExpiredDirectHoldInTx(tx, cand.id, cand.eventId, currentJobId),
-      currentJobId,
-      'Direct Hold'
-    );
-    const durationMs = Date.now() - startTime;
-    const promotedOffers = offerRes.promotedCount + holdRes.promotedCount;
-    const skipped = offerRes.skippedCount + holdRes.skippedCount;
-    this.logger.log(
-      `[Job ${currentJobId}] Hoàn tất sweep: expiredOffers=${offerRes.processedCount}, directHolds=${holdRes.processedCount}, promoted=${promotedOffers}, skipped=${skipped}, duration=${durationMs}ms.`
-    );
-    return {
-      jobId: currentJobId,
-      expiredOffers: offerRes.processedCount,
-      expiredDirectHolds: holdRes.processedCount,
-      promotedOffers,
-      skipped,
-      durationMs,
-    };
+    return runWithJobContext(currentJobId, async () => {
+      const startTime = Date.now();
+      this.logger.log(`[Job ${currentJobId}] Bắt đầu quét các bản ghi quá hạn.`);
+      const offerRes = await this.runSweepCursorLoop(
+        'offer',
+        batchSize,
+        (cursor, limit) => this.fetchExpiredOffers(cursor, limit),
+        (tx, cand) => this.processExpiredOfferInTx(tx, cand.id, cand.eventId, currentJobId),
+        currentJobId,
+        'Offer'
+      );
+      const holdRes = await this.runSweepCursorLoop(
+        'hold',
+        batchSize,
+        (cursor, limit) => this.fetchExpiredDirectHolds(cursor, limit),
+        (tx, cand) => this.processExpiredDirectHoldInTx(tx, cand.id, cand.eventId, currentJobId),
+        currentJobId,
+        'Direct Hold'
+      );
+      const durationMs = Date.now() - startTime;
+      const promotedOffers = offerRes.promotedCount + holdRes.promotedCount;
+      const skipped = offerRes.skippedCount + holdRes.skippedCount;
+      this.logger.log(
+        `[Job ${currentJobId}] Hoàn tất sweep: expiredOffers=${offerRes.processedCount}, directHolds=${holdRes.processedCount}, promoted=${promotedOffers}, skipped=${skipped}, duration=${durationMs}ms.`
+      );
+      return {
+        jobId: currentJobId,
+        expiredOffers: offerRes.processedCount,
+        expiredDirectHolds: holdRes.processedCount,
+        promotedOffers,
+        skipped,
+        durationMs,
+      };
+    });
   }
 
   private async runSweepCursorLoop(

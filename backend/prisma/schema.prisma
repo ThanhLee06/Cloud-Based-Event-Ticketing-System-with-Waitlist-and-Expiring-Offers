@@ -50,6 +50,8 @@ model User {
   phone           String?    @db.VarChar(20)
   /// Thời điểm xác thực email bằng OTP. null = chưa xác thực → chưa được đăng nhập.
   emailVerifiedAt DateTime?  @map("email_verified_at") @db.Timestamptz(3)
+  /// ST-036: mã định danh (sub) do Amazon Cognito cấp. Liên kết 1-1 với users.id; null = chưa đăng nhập qua Cognito.
+  cognitoSub      String?    @unique @map("cognito_sub") @db.VarChar(64)
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
